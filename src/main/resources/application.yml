@@ -1,0 +1,12 @@
+spring:
+  data:
+    mongodb:
+      host: localhost
+      port: 27017
+      database: botdb
+
+sources:
+  filmix:
+    search: https://filmix.co/engine/ajax/sphinx_search.php
+    search2: https://filmix.co/api/search/suggest
+    getData: http://filmix.live/api/movies/player_data
