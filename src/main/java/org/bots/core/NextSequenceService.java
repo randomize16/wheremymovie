@@ -11,12 +11,12 @@ import static org.springframework.data.mongodb.core.query.Criteria.where;
 import static org.springframework.data.mongodb.core.query.Query.query;
 
 @Service
-public class NextSequanceService {
+public class NextSequenceService {
 
     @Autowired
     private MongoOperations mongo;
 
-    public int getNextSequence(Class clazz)
+    public long getNextSequence(Class clazz)
     {
         Sequence counter = mongo.findAndModify(
                 query(where("_id").is(clazz.getSimpleName())),

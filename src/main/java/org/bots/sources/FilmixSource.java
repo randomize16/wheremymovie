@@ -1,30 +1,38 @@
 package org.bots.sources;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.bots.model.datebase.Movie;
+import org.bots.model.items.MovieFileHierarchy;
 import org.bots.model.items.MovieSearchResponse;
+import org.bots.model.sources.FilmixDataResponse;
 import org.bots.model.sources.FilmixFilesMessage;
-import org.bots.model.sources.FilmixResponse;
-import org.bots.model.sources.FilmixSearchMessage;
+import org.bots.model.sources.FilmixSearchResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static org.bots.common.Constants.FILMIX_SUCCESS;
 
 @Component
 public class FilmixSource implements MovieSources {
+
+    private static final String PLAYLIST_TRUE = "yes";
+
+    private static final Pattern p = Pattern.compile(".+(\\[.*?]).*");
+
+
+    ObjectMapper mapper = new ObjectMapper();
 
     private static final Logger log = LoggerFactory.getLogger(FilmixSource.class);
 
@@ -38,8 +46,10 @@ public class FilmixSource implements MovieSources {
     private String getDataUrl;
 
     public Movie getMovieById(Integer id){
-       Movie movie = getMovie(id);
-       fillMoviePlaylist(movie);
+//       Movie movie = getMovie(id);
+        Movie movie = new Movie();
+        movie.setId(id);
+       fillMoviePlaylist(movie, "6o53jodaeddcie9i5kca1qk9j7");
        return movie;
     }
 
@@ -48,34 +58,77 @@ public class FilmixSource implements MovieSources {
         return new Movie();
     }
 
-    private void fillMoviePlaylist(Movie movie){
-        MultiValueMap<String, String> map = new LinkedMultiValueMap<>();
-        map.add("post_id", String.valueOf(movie.getId()));
-        FilmixResponse<FilmixFilesMessage> response = null;
+    private void fillMoviePlaylist(Movie movie, String filmixToken){
+        MultiValueMap<String, String> requestParams = new LinkedMultiValueMap<>();
+        requestParams.add("post_id", String.valueOf(movie.getId()));
+
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Cookie", "FILMIXNET=" + filmixToken);
+        FilmixDataResponse response = null;
         try {
-            response = sendRestRequest(getDataUrl, map, new ParameterizedTypeReference<FilmixResponse<FilmixFilesMessage>>() {});
+            response = sendRestRequest(getDataUrl, requestParams, headers, FilmixDataResponse.class);
         } catch (Exception e) {
             e.printStackTrace();
         }
-        if(FILMIX_SUCCESS.equalsIgnoreCase(response.getType())){
-            movie.setMovieContentLinks(null);
+        if(response != null && FILMIX_SUCCESS.equalsIgnoreCase(response.getType())){
+            if(response.getMessage() != null && response.getMessage().getTranslations() != null){
+                FilmixFilesMessage.Translation translation = response.getMessage().getTranslations();
+                if(PLAYLIST_TRUE.equalsIgnoreCase(translation.getPlaylist()))
+                {
+                    System.out.println("playlist");
+                } else {
+                    translation.getFlash().forEach( (key, value) -> {
+                        MovieFileHierarchy fileLink = MovieFileHierarchy.createFile(key, decoder(value));
+                        movie.getMovieFileHierarchy().put(fileLink.getName().hashCode(),fileLink);
+                    });
+                    generateFileLinks(movie.getMovieFileHierarchy());
+
+                }
+            }
         }
 
     }
 
+    private void generateFileLinks(Map<Integer, MovieFileHierarchy> movieFileHierarchies){
+
+        if(movieFileHierarchies != null){
+            movieFileHierarchies.forEach((value, child) -> {
+                if(child.getType() == MovieFileHierarchy.FileHierarchyType.FILE){
+                    if(child.getUrl() != null){
+                        Matcher m = p.matcher( child.getUrl());
+                        if(m.matches()){
+                            child.setChildren(new HashMap<>());
+                            String qualityStr = m.group(1);
+                            List<String> qualityList = makeQualityList(qualityStr);
+                            qualityList.forEach(s ->
+                                    child.getChildren().put(s.hashCode(), MovieFileHierarchy.createLink(s, child.getUrl().replace(qualityStr, s))));
+                        }
+                    }
+                }else{
+                    generateFileLinks(child.getChildren());
+                }
+            });
+        }
+    }
+
+    private List<String> makeQualityList(String qualityList) {
+        String str = qualityList.substring(1, qualityList.length()-1);
+        return Arrays.stream(str.split(",")).filter(s -> !s.isEmpty()).collect(Collectors.toList());
+    }
+
     @Override
     public List<MovieSearchResponse> searchMovie(String searchText) {
-        MultiValueMap<String, String> map = new LinkedMultiValueMap<String, String>();
-        map.add("search_word", searchText);
-        FilmixResponse<FilmixSearchMessage> response = null;
+        MultiValueMap<String, String> requestParams = new LinkedMultiValueMap<>();
+        requestParams.add("search_word", searchText);
+        FilmixSearchResponse response = null;
         try {
-            response = sendRestRequest(searchUrl, map, new ParameterizedTypeReference<FilmixResponse<FilmixSearchMessage>>() {});
+            response = sendRestRequest(searchUrl, requestParams, null, FilmixSearchResponse.class);
         } catch (Exception e) {
             e.printStackTrace();
         }
 
         List<MovieSearchResponse> result = new ArrayList<>();
-        if(FILMIX_SUCCESS.equalsIgnoreCase(response.getType())){
+        if(response != null && FILMIX_SUCCESS.equalsIgnoreCase(response.getType())){
                 response.getMessage().forEach(msg -> {
                     MovieSearchResponse searchResult = new MovieSearchResponse();
                     searchResult.setId(msg.getId());
@@ -89,15 +142,19 @@ public class FilmixSource implements MovieSources {
         return result;
     }
 
-    private <T> T sendRestRequest(String url, MultiValueMap<String, String> map, ParameterizedTypeReference<T> responseType) throws Exception {
+    private <T> T sendRestRequest(String url, MultiValueMap<String, String> map, Map<String,String> headMap, Class<T> responseType) throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
         headers.set("X-Requested-With", "XMLHttpRequest");
-        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+        if(headMap != null){
+            headMap.forEach(headers::set);
+        }
+        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_FORM_URLENCODED));
+
         HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(map, headers);
-        ResponseEntity<T> response = restTemplate.exchange(url, HttpMethod.POST, request, responseType);
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
         if (response.getStatusCode().is2xxSuccessful()) {
-            return response.getBody();
+            return mapper.readValue(response.getBody(), responseType);
         } else {
             throw new Exception("Response error");
         }

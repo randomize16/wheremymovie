@@ -5,13 +5,13 @@ import org.springframework.data.annotation.Id;
 public class Sequence {
     @Id
     private String id;
-    private Integer seq;
+    private Long seq;
 
     public String getId() {
         return id;
     }
 
-    public Integer getSeq() {
+    public Long getSeq() {
         return seq;
     }
 }

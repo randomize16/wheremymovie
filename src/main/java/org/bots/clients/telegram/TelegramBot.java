@@ -1,8 +1,12 @@
 package org.bots.clients.telegram;
 
+import com.google.common.collect.Lists;
 import org.bots.configuration.ApplicationVariables;
+import org.bots.core.MessageStateService;
+import org.bots.model.datebase.Movie;
+import org.bots.model.items.Button;
+import org.bots.model.items.MovieFileHierarchy;
 import org.bots.model.items.MovieSearchResponse;
-import org.bots.screens.SearchScreen;
 import org.bots.sources.SearchService;
 import org.springframework.stereotype.Component;
 import org.telegram.abilitybots.api.bot.AbilityBot;
@@ -11,16 +15,19 @@ import org.telegram.abilitybots.api.objects.MessageContext;
 import org.telegram.telegrambots.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.api.methods.ParseMode;
 import org.telegram.telegrambots.api.methods.send.SendMessage;
-import org.telegram.telegrambots.api.objects.CallbackQuery;
+import org.telegram.telegrambots.api.methods.updatingmessages.EditMessageReplyMarkup;
 import org.telegram.telegrambots.api.objects.Update;
 import org.telegram.telegrambots.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.api.objects.replykeyboard.buttons.KeyboardRow;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.function.Consumer;
-import java.util.function.Function;
+import java.util.function.Predicate;
 
 import static org.telegram.abilitybots.api.objects.Flag.CALLBACK_QUERY;
 import static org.telegram.abilitybots.api.objects.Locality.ALL;
@@ -30,13 +37,15 @@ import static org.telegram.abilitybots.api.objects.Privacy.PUBLIC;
 public class TelegramBot extends AbilityBot {
 
     private final SearchService searchService;
-    private Map<String, Function> replyActionMap = new HashMap<>();
+    private final MessageStateService messageStateService;
 
-    private static final String OPEN_ACTION = "OPEN#";
+    private static final String SEARCH_REPLY = "search#";
+    private static final String OPEN_REPLY = "open#";
 
-    public TelegramBot(SearchService searchService) {
+    public TelegramBot(SearchService searchService, MessageStateService messageStateService) {
         super(ApplicationVariables.TELEGRAM_TOKEN, ApplicationVariables.BOT_NAME);
         this.searchService = searchService;
+        this.messageStateService = messageStateService;
     }
 
 
@@ -82,7 +91,7 @@ public class TelegramBot extends AbilityBot {
         };
     }
 
-    public Ability getSearch(){
+    public Ability searchMovie(){
         return Ability
                 .builder()
                 .name("search")
@@ -90,6 +99,54 @@ public class TelegramBot extends AbilityBot {
                 .locality(ALL)
                 .privacy(PUBLIC)
                 .action(searchHandler())
+                .reply(update -> {
+                    sendCallbackResponse(update.getCallbackQuery().getId());
+                    SendMessage msg = openMovie(update.getCallbackQuery().getData().replace(SEARCH_REPLY, ""));
+                    msg.setChatId(update.getCallbackQuery().getMessage().getChatId());
+                    silent.executeAsync(msg);
+                }, CALLBACK_QUERY, isStartWith(SEARCH_REPLY))
+                .build();
+    }
+
+    private EditMessageReplyMarkup createReplyButtons(List<Button> buttons, String menuType){
+        EditMessageReplyMarkup editMessage = new EditMessageReplyMarkup();
+        InlineKeyboardMarkup inlineKeyboardMarkup = new InlineKeyboardMarkup();
+        editMessage.setReplyMarkup(inlineKeyboardMarkup);
+
+        List<InlineKeyboardButton> inlineButtons = new ArrayList<>();
+        buttons.forEach(button -> {
+            InlineKeyboardButton inlineButton = new InlineKeyboardButton();
+            inlineButton.setText(button.getName());
+            if(button.getData() != null)
+                inlineButton.setCallbackData(menuType + button.getData());
+            else if(button.getUrl() != null)
+                inlineButton.setUrl(button.getUrl());
+            inlineButtons.add(inlineButton);
+        });
+
+        inlineKeyboardMarkup.setKeyboard(Lists.partition(inlineButtons,2));
+        return editMessage;
+
+    }
+
+    public Ability openMovie(){
+        return Ability
+                .builder()
+                .name("open")
+                .info("Open movie by id")
+                .locality(ALL)
+                .privacy(PUBLIC)
+                .action(msg -> openMovie(Arrays.stream(msg.arguments()).reduce((s, s2) -> s + " " + s2).orElse("")))
+                .reply(update -> {
+                    sendCallbackResponse(update.getCallbackQuery().getId());
+                    List<Button> buttons = messageStateService.getStateByPath(update.getCallbackQuery().getData().replace(OPEN_REPLY,""),
+                            update.getCallbackQuery().getMessage().getChatId(),
+                            update.getCallbackQuery().getMessage().getMessageId());
+                    EditMessageReplyMarkup msg = createReplyButtons(buttons, OPEN_REPLY);
+                    msg.setChatId(update.getCallbackQuery().getMessage().getChatId());
+                    msg.setMessageId(update.getCallbackQuery().getMessage().getMessageId());
+                    silent.executeAsync(msg);
+                }, CALLBACK_QUERY, isStartWith(OPEN_REPLY))
                 .build();
     }
 
@@ -102,43 +159,27 @@ public class TelegramBot extends AbilityBot {
         };
     }
 
-    private Ability handleReply(){
-        return Ability
-                .builder()
-                .reply(searchReplyHandler(), CALLBACK_QUERY)
-                .build();
-    }
-
-    private Consumer<Update> searchReplyHandler(){
-        return update -> {
-            AnswerCallbackQuery answer = new AnswerCallbackQuery();
-            answer.setCallbackQueryId(update.getCallbackQuery().getId());
-            silent.executeAsync(answer);
-
-            processReply(update.getCallbackQuery());
+    private Predicate<Update> isStartWith(String type) {
+        return upd -> {
+            String data = upd.getCallbackQuery().getData();
+            return !data.isEmpty() && data.startsWith(type);
         };
     }
 
-    private void processReply(CallbackQuery callbackQuery) {
-        SendMessage message = null;
-        String command = callbackQuery.getData().substring(0, callbackQuery.getData().indexOf("#"));
-        switch (command) {
-            case OPEN_ACTION: message = openMovie(command); break;
-            default: break;
-        }
-        if(message != null)
-            silent.executeAsync(message);
+    private void sendCallbackResponse(String id){
+        AnswerCallbackQuery answer = new AnswerCallbackQuery();
+        answer.setCallbackQueryId(id);
+        silent.executeAsync(answer);
     }
-
 
     private SendMessage searchMovie(String param){
         SendMessage message = new SendMessage();
 
 
-        SearchScreen searchScreen = searchService.searchMovie(param);
+        List<MovieSearchResponse> list = searchService.searchMovie(param);
         StringBuilder text = new StringBuilder();
         int rank = 1;
-        for(MovieSearchResponse movie : searchScreen.getMovieList()){
+        for(MovieSearchResponse movie : list){
             if(text.length() != 0)
                 text.append("------------------------------------------").append("\n");
                 text.append("_").append(rank++).append("_ ")
@@ -155,18 +196,35 @@ public class TelegramBot extends AbilityBot {
         List<InlineKeyboardButton> buttons = new ArrayList<>();
         keyboard.setKeyboard(Collections.singletonList(buttons));
         rank = 1;
-        for(String screenButton: searchScreen.getButtons() ) {
+        for(MovieSearchResponse searchItem: list ) {
             InlineKeyboardButton button = new InlineKeyboardButton();
             buttons.add(button);
             button.setText(String.valueOf(rank++))
-                  .setCallbackData(OPEN_ACTION + screenButton);
+                  .setCallbackData(SEARCH_REPLY + searchItem.getId());
         }
 
         return message;
     }
 
     private SendMessage openMovie(String movieId){
-        return null;
+        Movie movie = searchService.getMovie(Integer.valueOf(movieId));
+
+        SendMessage message = new SendMessage();
+        message.setText("Movie id =" + movie.getId());
+
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+        message.setReplyMarkup(keyboard);
+        List<InlineKeyboardButton> buttons = new ArrayList<>();
+        for(MovieFileHierarchy movieFileHierarchy : movie.getMovieFileHierarchy().values() ) {
+            InlineKeyboardButton button = new InlineKeyboardButton();
+            buttons.add(button);
+            if(movieFileHierarchy.getType() == MovieFileHierarchy.FileHierarchyType.FILE){
+                button.setText(movieFileHierarchy.getName())
+                        .setCallbackData(OPEN_REPLY + movieId + "#" + movieFileHierarchy.getName().hashCode());
+            }
+        }
+        keyboard.setKeyboard(Lists.partition(buttons, 2));
+        return message;
     }
 
 

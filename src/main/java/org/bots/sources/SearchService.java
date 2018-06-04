@@ -2,8 +2,7 @@ package org.bots.sources;
 
 import org.bots.model.datebase.Movie;
 import org.bots.model.items.MovieSearchResponse;
-import org.bots.screens.MovieScrean;
-import org.bots.screens.SearchScreen;
+import org.bots.repository.MovieRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -14,44 +13,32 @@ public class SearchService {
 
     private final List<MovieSources> sources;
     private final FilmixSource filmixSource;
+    private final MovieRepository movieRepository;
 
-    public SearchService(List<MovieSources> sources, FilmixSource filmixSource) {
+    public SearchService(List<MovieSources> sources, FilmixSource filmixSource, MovieRepository movieRepository) {
         this.sources = sources;
         this.filmixSource = filmixSource;
+        this.movieRepository = movieRepository;
     }
 
-    public SearchScreen searchMovie(String name){
+    public List<MovieSearchResponse> searchMovie(String name){
 
         List<MovieSearchResponse> response = new ArrayList<>();
         sources.forEach(movieSources -> {
             response.addAll(movieSources.searchMovie(name));
         });
-        SearchScreen screen = makeSearchScrean(response, 0);
-        return screen;
+        return response;
     }
 
-    public MovieScrean openMovie(Integer id){
+    public Movie getMovie(Integer id){
         Movie movie = filmixSource.getMovieById(id);
-        return makeMovieScrean(movie);
+        movieRepository.save(movie);
+        return movie;
     }
 
     private void combineResponses() {
         //TODO: combine response from different sources
     }
 
-    private SearchScreen makeSearchScrean(List<MovieSearchResponse> movieList, int offset) {
-        SearchScreen response = new SearchScreen();
-        response.setMovieSearchResponses(movieList);
-        List<String> buttons = new ArrayList<>();
-        movieList.forEach(movie -> buttons.add(movie.getId()));
-        response.setButtons(buttons);
-        return response;
-    }
-
-    private MovieScrean makeMovieScrean(Movie movie){
-        MovieScrean movieScrean = new MovieScrean();
-        movieScrean.setMovie(movie);
-        return movieScrean;
-    }
 
 }

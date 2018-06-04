@@ -2,20 +2,18 @@ package org.bots.model.sources;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
-import java.util.List;
-
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class FilmixResponse <T> {
+public class FilmixDataResponse {
 
-    private List<T> message;
+    private FilmixFilesMessage message;
     private String type;
     private String field;
 
-    public List<T> getMessage() {
+    public FilmixFilesMessage getMessage() {
         return message;
     }
 
-    public void setMessage(List<T> message) {
+    public void setMessage(FilmixFilesMessage message) {
         this.message = message;
     }
 

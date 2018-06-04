@@ -1,13 +1,12 @@
 package org.bots.model.datebase;
 
-import org.bots.model.items.MovieContext;
+import org.bots.model.items.MovieFileHierarchy;
 import org.bots.model.items.Person;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDate;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Document(collection = "movie")
 public class Movie {
@@ -30,10 +29,8 @@ public class Movie {
     private String poster;
     private List<String> categories;
 
-    private Map<String, String> movieInSource;
 
-
-    private Map<String, MovieContext> movieContentLinks;
+    private Map<Integer, MovieFileHierarchy> movieFileHierarchy = new LinkedHashMap<>();
 
     public enum FilmTypes {
         FILM,
@@ -170,19 +167,11 @@ public class Movie {
         this.categories = categories;
     }
 
-    public Map<String, String> getMovieInSource() {
-        return movieInSource;
+    public Map<Integer, MovieFileHierarchy> getMovieFileHierarchy() {
+        return movieFileHierarchy;
     }
 
-    public void setMovieInSource(Map<String, String> movieInSource) {
-        this.movieInSource = movieInSource;
-    }
-
-    public Map<String, MovieContext> getMovieContentLinks() {
-        return movieContentLinks;
-    }
-
-    public void setMovieContentLinks(Map<String, MovieContext> movieContentLinks) {
-        this.movieContentLinks = movieContentLinks;
+    public void setMovieFileHierarchy(Map<Integer, MovieFileHierarchy> movieFileHierarchy) {
+        this.movieFileHierarchy = movieFileHierarchy;
     }
 }
