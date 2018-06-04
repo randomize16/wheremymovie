@@ -15,12 +15,14 @@ import org.telegram.abilitybots.api.objects.MessageContext;
 import org.telegram.telegrambots.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.api.methods.ParseMode;
 import org.telegram.telegrambots.api.methods.send.SendMessage;
+import org.telegram.telegrambots.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.api.methods.updatingmessages.EditMessageReplyMarkup;
 import org.telegram.telegrambots.api.objects.Update;
 import org.telegram.telegrambots.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.api.objects.replykeyboard.buttons.KeyboardRow;
+import org.telegram.telegrambots.exceptions.TelegramApiException;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -101,9 +103,13 @@ public class TelegramBot extends AbilityBot {
                 .action(searchHandler())
                 .reply(update -> {
                     sendCallbackResponse(update.getCallbackQuery().getId());
-                    SendMessage msg = openMovie(update.getCallbackQuery().getData().replace(SEARCH_REPLY, ""));
+                    SendPhoto msg = openMovie(update.getCallbackQuery().getData().replace(SEARCH_REPLY, ""));
                     msg.setChatId(update.getCallbackQuery().getMessage().getChatId());
-                    silent.executeAsync(msg);
+                    try {
+                        sendPhoto(msg);
+                    } catch (TelegramApiException e) {
+                        e.printStackTrace();
+                    }
                 }, CALLBACK_QUERY, isStartWith(SEARCH_REPLY))
                 .build();
     }
@@ -206,11 +212,24 @@ public class TelegramBot extends AbilityBot {
         return message;
     }
 
-    private SendMessage openMovie(String movieId){
+    private SendPhoto openMovie(String movieId){
         Movie movie = searchService.getMovie(Integer.valueOf(movieId));
 
-        SendMessage message = new SendMessage();
-        message.setText("Movie id =" + movie.getId());
+        SendPhoto message = new SendPhoto();
+        StringBuilder str = new StringBuilder();
+        str
+                .append("*Title*: ").append(movie.getTitle()).append("\n")
+                .append("*OriginalTitle*: ").append(movie.getOriginalTitle().replace("\n", "")).append("\n")
+                .append("*Category*: ").append(movie.getCategories().stream().reduce((s, s2) -> s+ ", " + s2).orElse("")).append("\n")
+                .append("*Date*: ").append(movie.getDate()).append("\n")
+                .append("*IMDB*: ").append(movie.getRatio()).append("\n");
+//                .append("*Director*: ").append(movie.getDirectors().stream().reduce((s, s2) -> s+ ", " + s2).orElse("")).append("\n")
+//                .append("*Actors*: ").append(movie.getCasts().stream().reduce((s, s2) -> s+ ", " + s2).orElse("")).append("\n")
+//                .append("*Description*: ").append(movie.getDescription()).append("\n");
+
+        message.setCaption(str.toString());
+        message.setParseMode(ParseMode.MARKDOWN);
+        message.setPhoto(movie.getPoster());
 
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
         message.setReplyMarkup(keyboard);

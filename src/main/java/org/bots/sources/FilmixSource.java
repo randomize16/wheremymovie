@@ -7,6 +7,10 @@ import org.bots.model.items.MovieSearchResponse;
 import org.bots.model.sources.FilmixDataResponse;
 import org.bots.model.sources.FilmixFilesMessage;
 import org.bots.model.sources.FilmixSearchResponse;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +21,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,20 +47,61 @@ public class FilmixSource implements MovieSources {
     @Value("${sources.filmix.search2}")
     private String searchUrl;
 
-    @Value("${sources.filmix.getData}")
-    private String getDataUrl;
+    @Value("${sources.filmix.data}")
+    private String dataUrl;
 
-    public Movie getMovieById(Integer id){
-//       Movie movie = getMovie(id);
-        Movie movie = new Movie();
-        movie.setId(id);
-       fillMoviePlaylist(movie, "6o53jodaeddcie9i5kca1qk9j7");
-       return movie;
+    @Value("${sources.filmix.info}")
+    private String infoUrl;
+
+    public Movie getMovieById(Integer id) {
+        String token = null;
+        Movie movie = getMovie(id, token);
+        fillMoviePlaylist(movie, "6o53jodaeddcie9i5kca1qk9j7");
+        return movie;
     }
 
-    private Movie getMovie(Integer id){
+    private Movie getMovie(Integer id, String token) {
+        Movie resultMovie = new Movie();
+        resultMovie.setId(id);
+        try {
+            Document doc = Jsoup.connect(String.format(infoUrl, id)).get();
+            Elements content = doc.getElementsByClass("titles-left");
+            Element element = content.get(0);
+            Elements href = element.select(" div > a");
+            String infoLink = href.get(0).attr("href");
 
-        return new Movie();
+            doc = Jsoup.connect(infoLink).get();
+            Element elementInfo = doc.getElementById("dle-content");
+            Elements imgTag = elementInfo.select("article > div > span > a");
+            resultMovie.setPoster(imgTag.attr("href"));
+
+            Elements name = elementInfo.select("div > div > h1.name");
+            resultMovie.setTitle(name.get(0).childNode(0).outerHtml());
+
+
+            Elements originName = elementInfo.select("div > div > div.origin-name");
+            resultMovie.setOriginalTitle(originName.get(0).childNode(0).outerHtml());
+
+            Elements directors = doc.select("div.directors > span > span > a > span[itemprop=\"name\"]");
+            resultMovie.setDirectors(directors.stream().map(elem -> elem.childNode(0).outerHtml()).collect(Collectors.toList()));
+
+            Elements actors = doc.select("div.actors > span > span > a > span[itemprop=\"name\"]");
+            resultMovie.setCasts(actors.stream().map(elem -> elem.childNode(0).outerHtml()).collect(Collectors.toList()));
+
+            Elements category = doc.select("div.category > span > span > a[itemprop=\"genre\"]");
+            resultMovie.setCategories(category.stream().map(elem -> elem.childNode(0).outerHtml()).collect(Collectors.toList()));
+
+            Elements year = doc.select("div.year > span > a[itemprop=\"copyrightYear\"]");
+            resultMovie.setDate(year.stream().map(elem -> elem.childNode(0).outerHtml()).reduce((s, s2) -> s + " - " + s2).orElse(""));
+
+            Elements ratio = doc.select("div > div > footer > span.imdb > p");
+            resultMovie.setRatio(ratio.get(0).childNode(0).outerHtml());
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return resultMovie;
     }
 
     private void fillMoviePlaylist(Movie movie, String filmixToken){
@@ -66,7 +112,7 @@ public class FilmixSource implements MovieSources {
         headers.put("Cookie", "FILMIXNET=" + filmixToken);
         FilmixDataResponse response = null;
         try {
-            response = sendRestRequest(getDataUrl, requestParams, headers, FilmixDataResponse.class);
+            response = sendRestRequest(dataUrl, requestParams, headers, FilmixDataResponse.class);
         } catch (Exception e) {
             e.printStackTrace();
         }

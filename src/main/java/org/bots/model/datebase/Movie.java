@@ -1,12 +1,13 @@
 package org.bots.model.datebase;
 
 import org.bots.model.items.MovieFileHierarchy;
-import org.bots.model.items.Person;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDate;
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Document(collection = "movie")
 public class Movie {
@@ -15,11 +16,11 @@ public class Movie {
     private Integer id;
     private String title;
     private String originalTitle;
-    private List<Person> directors;
-    private List<Person> writers;
-    private List<Person> casts;
-    private Integer ratio;
-    private LocalDate releaseDate;
+    private List<String> directors;
+    private List<String> writers;
+    private List<String> casts;
+    private String ratio;
+    private String date;
     private FilmTypes filmTypes;
     private String status;
     private LocalDate updated;
@@ -63,44 +64,44 @@ public class Movie {
         this.originalTitle = originalTitle;
     }
 
-    public List<Person> getDirectors() {
+    public List<String> getDirectors() {
         return directors;
     }
 
-    public void setDirectors(List<Person> directors) {
+    public void setDirectors(List<String> directors) {
         this.directors = directors;
     }
 
-    public List<Person> getWriters() {
+    public List<String> getWriters() {
         return writers;
     }
 
-    public void setWriters(List<Person> writers) {
+    public void setWriters(List<String> writers) {
         this.writers = writers;
     }
 
-    public List<Person> getCasts() {
+    public List<String> getCasts() {
         return casts;
     }
 
-    public void setCasts(List<Person> casts) {
+    public void setCasts(List<String> casts) {
         this.casts = casts;
     }
 
-    public Integer getRatio() {
+    public String getRatio() {
         return ratio;
     }
 
-    public void setRatio(Integer ratio) {
+    public void setRatio(String ratio) {
         this.ratio = ratio;
     }
 
-    public LocalDate getReleaseDate() {
-        return releaseDate;
+    public String getDate() {
+        return date;
     }
 
-    public void setReleaseDate(LocalDate releaseDate) {
-        this.releaseDate = releaseDate;
+    public void setDate(String date) {
+        this.date = date;
     }
 
     public FilmTypes getFilmTypes() {

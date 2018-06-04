@@ -9,4 +9,5 @@ sources:
   filmix:
     search: https://filmix.co/engine/ajax/sphinx_search.php
     search2: https://filmix.co/api/search/suggest
-    getData: http://filmix.live/api/movies/player_data
+    data: http://filmix.live/api/movies/player_data
+    info: http://filmix.live/play/%s
