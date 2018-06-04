@@ -3,6 +3,7 @@ package org.bots.clients.telegram;
 import com.google.common.collect.Lists;
 import org.bots.configuration.ApplicationVariables;
 import org.bots.core.MessageStateService;
+import org.bots.core.VoiceRecognitionService;
 import org.bots.model.datebase.Movie;
 import org.bots.model.items.Button;
 import org.bots.model.items.MovieFileHierarchy;
@@ -13,6 +14,7 @@ import org.telegram.abilitybots.api.bot.AbilityBot;
 import org.telegram.abilitybots.api.objects.Ability;
 import org.telegram.abilitybots.api.objects.MessageContext;
 import org.telegram.telegrambots.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.api.methods.GetFile;
 import org.telegram.telegrambots.api.methods.ParseMode;
 import org.telegram.telegrambots.api.methods.send.SendMessage;
 import org.telegram.telegrambots.api.methods.send.SendPhoto;
@@ -24,6 +26,7 @@ import org.telegram.telegrambots.api.objects.replykeyboard.buttons.InlineKeyboar
 import org.telegram.telegrambots.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.exceptions.TelegramApiException;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -31,6 +34,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
+import static org.bots.configuration.ApplicationVariables.CREATOR_ID;
 import static org.telegram.abilitybots.api.objects.Flag.CALLBACK_QUERY;
 import static org.telegram.abilitybots.api.objects.Locality.ALL;
 import static org.telegram.abilitybots.api.objects.Privacy.PUBLIC;
@@ -40,20 +44,22 @@ public class TelegramBot extends AbilityBot {
 
     private final SearchService searchService;
     private final MessageStateService messageStateService;
+    private final VoiceRecognitionService voiceRecognitionService;
 
     private static final String SEARCH_REPLY = "search#";
     private static final String OPEN_REPLY = "open#";
 
-    public TelegramBot(SearchService searchService, MessageStateService messageStateService) {
+    public TelegramBot(SearchService searchService, MessageStateService messageStateService, VoiceRecognitionService voiceRecognitionService) {
         super(ApplicationVariables.TELEGRAM_TOKEN, ApplicationVariables.BOT_NAME);
         this.searchService = searchService;
         this.messageStateService = messageStateService;
+        this.voiceRecognitionService = voiceRecognitionService;
     }
 
 
     @Override
     public int creatorId() {
-        return 291863262;
+        return CREATOR_ID;
     }
 
     public Ability getStarted(){
@@ -91,6 +97,32 @@ public class TelegramBot extends AbilityBot {
             message.setParseMode(ParseMode.MARKDOWN);
             silent.execute(message);
         };
+    }
+
+    public Ability voiceSearch(){
+        return Ability
+                .builder()
+                .name(DEFAULT)
+                .info("Voice search")
+                .privacy(PUBLIC)
+                .locality(ALL)
+                .flag(update -> update.getMessage().getVoice() != null)
+                .action(msgCtx -> {
+                    String searchText = null;
+                    GetFile getFileMethod = new GetFile();
+                    getFileMethod.setFileId(msgCtx.update().getMessage().getVoice().getFileId());
+                    try {
+                        File file = downloadFile(execute(getFileMethod).getFilePath());
+                        searchText = voiceRecognitionService.recognizeVoice(file);
+                        } catch (TelegramApiException e) {
+                        e.printStackTrace();
+                    }
+                    SendMessage msg = searchMovie(searchText);
+                    msg.setChatId(msgCtx.chatId());
+                    silent.execute(msg);
+                })
+
+                .build();
     }
 
     public Ability searchMovie(){
@@ -184,14 +216,15 @@ public class TelegramBot extends AbilityBot {
 
         List<MovieSearchResponse> list = searchService.searchMovie(param);
         StringBuilder text = new StringBuilder();
+        text.append("*Search movie* ").append(param).append(" \n");
         int rank = 1;
         for(MovieSearchResponse movie : list){
             if(text.length() != 0)
                 text.append("------------------------------------------").append("\n");
                 text.append("_").append(rank++).append("_ ")
                     .append("*Title:*").append(movie.getTitle()).append("\n")
-                    .append("\t*Year:*").append(movie.getYear()).append("\n")
-                    .append("\t*Original*").append(movie.getOriginalName()).append("\n");
+                    .append("\t*Year* :").append(movie.getYear()).append("\n")
+                    .append("\t*Original* :").append(movie.getOriginalName()).append("\n");
         }
 
         message.setText(text.toString());
