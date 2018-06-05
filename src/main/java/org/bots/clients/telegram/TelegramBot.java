@@ -270,10 +270,9 @@ public class TelegramBot extends AbilityBot {
         for(MovieFileHierarchy movieFileHierarchy : movie.getMovieFileHierarchy().values() ) {
             InlineKeyboardButton button = new InlineKeyboardButton();
             buttons.add(button);
-            if(movieFileHierarchy.getType() == MovieFileHierarchy.FileHierarchyType.FILE){
                 button.setText(movieFileHierarchy.getName())
                         .setCallbackData(OPEN_REPLY + movieId + "#" + movieFileHierarchy.getName().hashCode());
-            }
+
         }
         keyboard.setKeyboard(Lists.partition(buttons, 2));
         return message;

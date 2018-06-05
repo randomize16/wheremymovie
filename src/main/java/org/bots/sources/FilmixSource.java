@@ -6,6 +6,7 @@ import org.bots.model.items.MovieFileHierarchy;
 import org.bots.model.items.MovieSearchResponse;
 import org.bots.model.sources.FilmixDataResponse;
 import org.bots.model.sources.FilmixFilesMessage;
+import org.bots.model.sources.FilmixPlaylist;
 import org.bots.model.sources.FilmixSearchResponse;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -116,23 +117,57 @@ public class FilmixSource implements MovieSources {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        if(response != null && FILMIX_SUCCESS.equalsIgnoreCase(response.getType())){
-            if(response.getMessage() != null && response.getMessage().getTranslations() != null){
+        if (response != null && FILMIX_SUCCESS.equalsIgnoreCase(response.getType())) {
+            if (response.getMessage() != null && response.getMessage().getTranslations() != null) {
                 FilmixFilesMessage.Translation translation = response.getMessage().getTranslations();
-                if(PLAYLIST_TRUE.equalsIgnoreCase(translation.getPlaylist()))
-                {
-                    System.out.println("playlist");
-                } else {
-                    translation.getFlash().forEach( (key, value) -> {
-                        MovieFileHierarchy fileLink = MovieFileHierarchy.createFile(key, decoder(value));
-                        movie.getMovieFileHierarchy().put(fileLink.getName().hashCode(),fileLink);
+                if (PLAYLIST_TRUE.equalsIgnoreCase(translation.getPlaylist())) {
+                    translation.getFlash().forEach((key, value) -> {
+                        MovieFileHierarchy folder = MovieFileHierarchy.createFolder(key);
+                        movie.getMovieFileHierarchy().put(folder.getName().hashCode(), folder);
+                        folder.setChildren(generatePlaylistHierarchy(decoder(value)));
                     });
-                    generateFileLinks(movie.getMovieFileHierarchy());
-
+                } else {
+                    translation.getFlash().forEach((key, value) -> {
+                        MovieFileHierarchy fileLink = MovieFileHierarchy.createFile(key, decoder(value));
+                        movie.getMovieFileHierarchy().put(fileLink.getName().hashCode(), fileLink);
+                    });
                 }
+                generateFileLinks(movie.getMovieFileHierarchy());
             }
         }
 
+    }
+
+    private Map<Integer, MovieFileHierarchy> generatePlaylistHierarchy(String url) {
+        Map<Integer, MovieFileHierarchy> resultMap = new HashMap<>();
+        FilmixPlaylist filmixPlaylist = null;
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Cookie", "FILMIXNET=6o53jodaeddcie9i5kca1qk9j7");
+            HttpEntity<String> request = new HttpEntity<>(null, headers);
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            String decoded = decoder(response.getBody());
+            filmixPlaylist = mapper.readValue(decoded, FilmixPlaylist.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        if(filmixPlaylist != null){
+            Map<String, List<FilmixPlaylist>> grouped = filmixPlaylist.getPlaylist()
+                    .stream()
+                    .map(FilmixPlaylist::getPlaylist)
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.groupingBy(FilmixPlaylist::getSeason, Collectors.toList()));
+            grouped.forEach((season, series) -> {
+                MovieFileHierarchy seasonHierarchy = MovieFileHierarchy.createFolder("Сезон " + season);
+                seasonHierarchy.setChildren(new HashMap<>());
+                resultMap.put(seasonHierarchy.getName().hashCode(),seasonHierarchy);
+                series.forEach(pl -> {
+                    MovieFileHierarchy seria = MovieFileHierarchy.createFile("Серия " + pl.getSerieId(), pl.getFile());
+                    seasonHierarchy.getChildren().put(seria.getName().hashCode(), seria);
+                });
+            });
+        }
+        return resultMap;
     }
 
     private void generateFileLinks(Map<Integer, MovieFileHierarchy> movieFileHierarchies){
@@ -146,8 +181,10 @@ public class FilmixSource implements MovieSources {
                             child.setChildren(new HashMap<>());
                             String qualityStr = m.group(1);
                             List<String> qualityList = makeQualityList(qualityStr);
-                            qualityList.forEach(s ->
-                                    child.getChildren().put(s.hashCode(), MovieFileHierarchy.createLink(s, child.getUrl().replace(qualityStr, s))));
+                            qualityList.forEach(s -> {
+                                child.getChildren().put(s.hashCode(), MovieFileHierarchy.createLink(s, child.getUrl().replace(qualityStr, s)));
+//                                child.getChildren().put(("vlc:" + s).hashCode(), MovieFileHierarchy.createLink("vlc:" + s, child.getUrl().replace(qualityStr, s).replace("http", "vlc")));
+                            });
                         }
                     }
                 }else{
