@@ -7,6 +7,7 @@ public class MovieFileHierarchy {
     private String name;
     private String url;
     private FileHierarchyType type;
+    private Integer order;
 
     private Map<Integer, MovieFileHierarchy> children;
 
@@ -44,6 +45,14 @@ public class MovieFileHierarchy {
 
     public void setChildren(Map<Integer, MovieFileHierarchy> children) {
         this.children = children;
+    }
+
+    public Integer getOrder() {
+        return order;
+    }
+
+    public void setOrder(Integer order) {
+        this.order = order;
     }
 
     private MovieFileHierarchy() {}

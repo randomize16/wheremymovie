@@ -1,8 +1,10 @@
-package org.bots.sources;
+package org.bots.services;
 
 import org.bots.model.datebase.Movie;
 import org.bots.model.items.MovieSearchResponse;
 import org.bots.repository.MovieRepository;
+import org.bots.sources.FilmixSource;
+import org.bots.sources.MovieSources;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;

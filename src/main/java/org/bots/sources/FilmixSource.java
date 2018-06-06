@@ -24,6 +24,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -121,14 +122,19 @@ public class FilmixSource implements MovieSources {
             if (response.getMessage() != null && response.getMessage().getTranslations() != null) {
                 FilmixFilesMessage.Translation translation = response.getMessage().getTranslations();
                 if (PLAYLIST_TRUE.equalsIgnoreCase(translation.getPlaylist())) {
+                    AtomicInteger order = new AtomicInteger();
                     translation.getFlash().forEach((key, value) -> {
                         MovieFileHierarchy folder = MovieFileHierarchy.createFolder(key);
+                        folder.setOrder(order.getAndIncrement());
                         movie.getMovieFileHierarchy().put(folder.getName().hashCode(), folder);
                         folder.setChildren(generatePlaylistHierarchy(decoder(value)));
                     });
                 } else {
+                    AtomicInteger order = new AtomicInteger();
                     translation.getFlash().forEach((key, value) -> {
                         MovieFileHierarchy fileLink = MovieFileHierarchy.createFile(key, decoder(value));
+
+                        fileLink.setOrder(order.getAndIncrement());
                         movie.getMovieFileHierarchy().put(fileLink.getName().hashCode(), fileLink);
                     });
                 }
@@ -160,9 +166,11 @@ public class FilmixSource implements MovieSources {
             grouped.forEach((season, series) -> {
                 MovieFileHierarchy seasonHierarchy = MovieFileHierarchy.createFolder("Сезон " + season);
                 seasonHierarchy.setChildren(new HashMap<>());
+                seasonHierarchy.setOrder(Integer.valueOf(season));
                 resultMap.put(seasonHierarchy.getName().hashCode(),seasonHierarchy);
                 series.forEach(pl -> {
                     MovieFileHierarchy seria = MovieFileHierarchy.createFile("Серия " + pl.getSerieId(), pl.getFile());
+                    seria.setOrder(Integer.valueOf(pl.getSerieId()));
                     seasonHierarchy.getChildren().put(seria.getName().hashCode(), seria);
                 });
             });

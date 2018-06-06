@@ -2,13 +2,15 @@ package org.bots.clients.telegram;
 
 import com.google.common.collect.Lists;
 import org.bots.configuration.ApplicationVariables;
-import org.bots.core.MessageStateService;
-import org.bots.core.VoiceRecognitionService;
 import org.bots.model.datebase.Movie;
+import org.bots.model.datebase.TelegramClient;
 import org.bots.model.items.Button;
 import org.bots.model.items.MovieFileHierarchy;
 import org.bots.model.items.MovieSearchResponse;
-import org.bots.sources.SearchService;
+import org.bots.services.MessageStateService;
+import org.bots.services.SearchService;
+import org.bots.services.UserService;
+import org.bots.services.VoiceRecognitionService;
 import org.springframework.stereotype.Component;
 import org.telegram.abilitybots.api.bot.AbilityBot;
 import org.telegram.abilitybots.api.objects.Ability;
@@ -27,12 +29,10 @@ import org.telegram.telegrambots.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.exceptions.TelegramApiException;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import static org.bots.configuration.ApplicationVariables.CREATOR_ID;
 import static org.telegram.abilitybots.api.objects.Flag.CALLBACK_QUERY;
@@ -45,15 +45,21 @@ public class TelegramBot extends AbilityBot {
     private final SearchService searchService;
     private final MessageStateService messageStateService;
     private final VoiceRecognitionService voiceRecognitionService;
+    private final UserService userService;
 
     private static final String SEARCH_REPLY = "search#";
     private static final String OPEN_REPLY = "open#";
+    private static final String FAVORITE_REPLY = "favorite#";
 
-    public TelegramBot(SearchService searchService, MessageStateService messageStateService, VoiceRecognitionService voiceRecognitionService) {
+
+    private static final String SEARCH_COMMAND = "search";
+
+    public TelegramBot(SearchService searchService, MessageStateService messageStateService, VoiceRecognitionService voiceRecognitionService, UserService userService) {
         super(ApplicationVariables.TELEGRAM_TOKEN, ApplicationVariables.BOT_NAME);
         this.searchService = searchService;
         this.messageStateService = messageStateService;
         this.voiceRecognitionService = voiceRecognitionService;
+        this.userService = userService;
     }
 
 
@@ -62,7 +68,7 @@ public class TelegramBot extends AbilityBot {
         return CREATOR_ID;
     }
 
-    public Ability getStarted(){
+    public Ability commandStart(){
         return Ability
                 .builder()
                 .name("start")
@@ -74,8 +80,105 @@ public class TelegramBot extends AbilityBot {
                 .build();
     }
 
+
+    public Ability commonTextHandler(){
+        return Ability
+                .builder()
+                .name(DEFAULT)
+                .info("Voice search")
+                .privacy(PUBLIC)
+                .locality(ALL)
+                .action(msgCtx -> {
+                    if(msgCtx.update().getMessage().getVoice() != null){
+                        String searchText = null;
+                        GetFile getFileMethod = new GetFile();
+                        getFileMethod.setFileId(msgCtx.update().getMessage().getVoice().getFileId());
+                        try {
+                            File file = downloadFile(execute(getFileMethod).getFilePath());
+                            searchText = voiceRecognitionService.recognizeVoice(file);
+                        } catch (TelegramApiException e) {
+                            e.printStackTrace();
+                        }
+                        sendSearchResponse(searchText, msgCtx.chatId());
+                    } else if(msgCtx.update().hasMessage() && msgCtx.update().getMessage().hasText()){
+                        String lastUserCommand = userService.takeActiveCommand(TelegramClient.of(msgCtx.user().id()));
+                        if(lastUserCommand == null) {
+                            silent.send("Input command first, to see all command type /commands", msgCtx.chatId());
+                        } else {
+                            sendSearchResponse(msgCtx.update().getMessage().getText(),msgCtx.chatId());
+                        }
+                    }
+                })
+                .reply(update -> {
+                    userService.changeFavorites(TelegramClient.of(update.getCallbackQuery().getFrom().getId()),
+                            user -> {
+                                List<String> data = getCallbackMessage(update.getCallbackQuery().getData());
+                                if(data.get(0).equalsIgnoreCase("add")){
+                                    user.getFavorites().add(Integer.valueOf(data.get(1)));
+                                }else{
+                                    user.getFavorites().remove(Integer.valueOf(data.get(1)));
+                                }
+                            });
+                }, CALLBACK_QUERY, isStartWith(FAVORITE_REPLY))
+                .build();
+    }
+
+    public Ability commandSearch(){
+        return Ability
+                .builder()
+                .name(SEARCH_COMMAND)
+                .info("Search movie")
+                .locality(ALL)
+                .privacy(PUBLIC)
+                .action(msgCtx -> {
+                    if(msgCtx.arguments().length == 0){
+                        userService.setActiveCommand(TelegramClient.of(msgCtx.user().id()), SEARCH_COMMAND);
+                        silent.send("Enter movie name to search", msgCtx.chatId());
+                    }else{
+                        sendSearchResponse(Arrays.stream(msgCtx.arguments()).reduce((s, s2) -> s + " " + s2).orElse(""),
+                                msgCtx.chatId());
+                    }
+                })
+                .reply(update -> {
+                    sendCallbackResponse(update.getCallbackQuery().getId());
+                    sendMovie(update.getCallbackQuery().getData().replace(SEARCH_REPLY, ""),
+                            update.getCallbackQuery().getMessage().getChatId());
+                }, CALLBACK_QUERY, isStartWith(SEARCH_REPLY))
+                .build();
+    }
+
+    private List<String> getCallbackMessage(String data){
+        List<String> result = Arrays.asList(data.split("#"));
+        return result.subList(1, result.size());
+    }
+
+    public Ability commandOpen(){
+        return Ability
+                .builder()
+                .name("open")
+                .info("Open movie by id")
+                .locality(ALL)
+                .privacy(PUBLIC)
+                .action(msg -> openMovie(Arrays.stream(msg.arguments()).reduce((s, s2) -> s + " " + s2).orElse("")))
+                .reply(update -> {
+                    sendCallbackResponse(update.getCallbackQuery().getId());
+                    String data = update.getCallbackQuery().getData().replace(OPEN_REPLY,"");
+                    List<Button> buttons = messageStateService.getStateByPath(
+                            data,
+                            update.getCallbackQuery().getMessage().getChatId(),
+                            update.getCallbackQuery().getMessage().getMessageId());
+                    buttons.add(createFavoriteButton(TelegramClient.of(update.getCallbackQuery().getFrom().getId()), data.split("#")[0]));
+                    EditMessageReplyMarkup msg = createReplyButtons(buttons, OPEN_REPLY);
+                    msg.setChatId(update.getCallbackQuery().getMessage().getChatId());
+                    msg.setMessageId(update.getCallbackQuery().getMessage().getMessageId());
+                    silent.executeAsync(msg);
+                }, CALLBACK_QUERY, isStartWith(OPEN_REPLY))
+                .build();
+    }
+
     private Consumer<MessageContext> starterHandler() {
         return msgCtx -> {
+            userService.registerUser(msgCtx.user().firstName(), msgCtx.user().username(), TelegramClient.of(msgCtx.user().id()));
             SendMessage message = new SendMessage();
             String html = "*Welcome to search movie bot, let's try search something*";
             message.setText(html);
@@ -99,51 +202,22 @@ public class TelegramBot extends AbilityBot {
         };
     }
 
-    public Ability voiceSearch(){
-        return Ability
-                .builder()
-                .name(DEFAULT)
-                .info("Voice search")
-                .privacy(PUBLIC)
-                .locality(ALL)
-                .flag(update -> update.getMessage().getVoice() != null)
-                .action(msgCtx -> {
-                    String searchText = null;
-                    GetFile getFileMethod = new GetFile();
-                    getFileMethod.setFileId(msgCtx.update().getMessage().getVoice().getFileId());
-                    try {
-                        File file = downloadFile(execute(getFileMethod).getFilePath());
-                        searchText = voiceRecognitionService.recognizeVoice(file);
-                        } catch (TelegramApiException e) {
-                        e.printStackTrace();
-                    }
-                    SendMessage msg = searchMovie(searchText);
-                    msg.setChatId(msgCtx.chatId());
-                    silent.execute(msg);
-                })
-
-                .build();
+    private void sendMovie(String movieId, Long chatId) {
+        SendPhoto msg = openMovie(movieId);
+        msg.setChatId(chatId);
+        try {
+            sendPhoto(msg);
+        } catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
     }
 
-    public Ability searchMovie(){
-        return Ability
-                .builder()
-                .name("search")
-                .info("Search movie")
-                .locality(ALL)
-                .privacy(PUBLIC)
-                .action(searchHandler())
-                .reply(update -> {
-                    sendCallbackResponse(update.getCallbackQuery().getId());
-                    SendPhoto msg = openMovie(update.getCallbackQuery().getData().replace(SEARCH_REPLY, ""));
-                    msg.setChatId(update.getCallbackQuery().getMessage().getChatId());
-                    try {
-                        sendPhoto(msg);
-                    } catch (TelegramApiException e) {
-                        e.printStackTrace();
-                    }
-                }, CALLBACK_QUERY, isStartWith(SEARCH_REPLY))
-                .build();
+    private Button createFavoriteButton(TelegramClient client, String movieId){
+        boolean isFavorite = userService.checkFavorite(client, Integer.valueOf(movieId));
+        if(isFavorite)
+            return Button.favoriteButton(movieId, false);
+        else
+            return Button.favoriteButton(movieId, true);
     }
 
     private EditMessageReplyMarkup createReplyButtons(List<Button> buttons, String menuType){
@@ -151,50 +225,41 @@ public class TelegramBot extends AbilityBot {
         InlineKeyboardMarkup inlineKeyboardMarkup = new InlineKeyboardMarkup();
         editMessage.setReplyMarkup(inlineKeyboardMarkup);
 
-        List<InlineKeyboardButton> inlineButtons = new ArrayList<>();
-        buttons.forEach(button -> {
+        List<Button> menuButtons = buttons.stream()
+                .filter(btn -> btn.getType() == Button.ButtonType.MENU)
+                .collect(Collectors.toList());
+        List<Button> responseButtons = buttons.stream()
+                .filter(btn -> btn.getType() == Button.ButtonType.RESPONSE)
+                .collect(Collectors.toList());
+
+        List<InlineKeyboardButton> inlineMenuButtons =  menuButtons.stream().map(btn -> {
+            InlineKeyboardButton inlineBtn = new InlineKeyboardButton();
+            inlineBtn.setText(btn.getName());
+            inlineBtn.setCallbackData((btn.getMenuType() == null ? menuType : btn.getMenuType()) + btn.getData());
+            return inlineBtn;
+        }).collect(Collectors.toList());
+
+        List<InlineKeyboardButton> responseInlineButtons = responseButtons.stream()
+                .sorted(Comparator.nullsLast(Comparator.comparing(Button::getOrder)))
+                .map(button -> {
             InlineKeyboardButton inlineButton = new InlineKeyboardButton();
             inlineButton.setText(button.getName());
             if(button.getData() != null)
                 inlineButton.setCallbackData(menuType + button.getData());
             else if(button.getUrl() != null)
                 inlineButton.setUrl(button.getUrl());
-            inlineButtons.add(inlineButton);
-        });
+            return inlineButton;
+        }).collect(Collectors.toList());
 
-        inlineKeyboardMarkup.setKeyboard(Lists.partition(inlineButtons,2));
+
+        List<List<InlineKeyboardButton>> replyInlineButtons = Lists.partition(responseInlineButtons, 2);
+
+        List<List<InlineKeyboardButton>> inlineButtons = new ArrayList<>();
+        inlineButtons.add(inlineMenuButtons);
+        inlineButtons.addAll(replyInlineButtons);
+        inlineKeyboardMarkup.setKeyboard(inlineButtons);
         return editMessage;
 
-    }
-
-    public Ability openMovie(){
-        return Ability
-                .builder()
-                .name("open")
-                .info("Open movie by id")
-                .locality(ALL)
-                .privacy(PUBLIC)
-                .action(msg -> openMovie(Arrays.stream(msg.arguments()).reduce((s, s2) -> s + " " + s2).orElse("")))
-                .reply(update -> {
-                    sendCallbackResponse(update.getCallbackQuery().getId());
-                    List<Button> buttons = messageStateService.getStateByPath(update.getCallbackQuery().getData().replace(OPEN_REPLY,""),
-                            update.getCallbackQuery().getMessage().getChatId(),
-                            update.getCallbackQuery().getMessage().getMessageId());
-                    EditMessageReplyMarkup msg = createReplyButtons(buttons, OPEN_REPLY);
-                    msg.setChatId(update.getCallbackQuery().getMessage().getChatId());
-                    msg.setMessageId(update.getCallbackQuery().getMessage().getMessageId());
-                    silent.executeAsync(msg);
-                }, CALLBACK_QUERY, isStartWith(OPEN_REPLY))
-                .build();
-    }
-
-    private Consumer<MessageContext> searchHandler() {
-        return msgCtx -> {
-            SendMessage msg = searchMovie(Arrays.stream(msgCtx.arguments()).reduce((s, s2) -> s + " " + s2).orElse(""));
-            msg.setChatId(msgCtx.chatId());
-            silent.execute(msg);
-
-        };
     }
 
     private Predicate<Update> isStartWith(String type) {
@@ -210,11 +275,16 @@ public class TelegramBot extends AbilityBot {
         silent.executeAsync(answer);
     }
 
-    private SendMessage searchMovie(String param){
-        SendMessage message = new SendMessage();
-
+    private void sendSearchResponse(String param, Long chatId){
 
         List<MovieSearchResponse> list = searchService.searchMovie(param);
+        if(list.size() == 1){
+            sendMovie(list.get(0).getId(),chatId);
+            return;
+        }
+
+        SendMessage message = new SendMessage();
+
         StringBuilder text = new StringBuilder();
         text.append("*Search movie* ").append(param).append(" \n");
         int rank = 1;
@@ -241,8 +311,8 @@ public class TelegramBot extends AbilityBot {
             button.setText(String.valueOf(rank++))
                   .setCallbackData(SEARCH_REPLY + searchItem.getId());
         }
-
-        return message;
+        message.setChatId(chatId);
+        silent.executeAsync(message);
     }
 
     private SendPhoto openMovie(String movieId){

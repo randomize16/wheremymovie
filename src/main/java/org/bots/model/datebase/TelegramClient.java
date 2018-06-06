@@ -6,8 +6,15 @@ import org.springframework.data.annotation.Id;
 public class TelegramClient implements Client {
 
     @Id
-    Integer clientId;
+    private Integer clientId;
 
+    private TelegramClient(Integer clientId) {
+        this.clientId = clientId;
+    }
+
+    public static TelegramClient of(Integer id){
+        return new TelegramClient(id);
+    }
 
     @Override
     public ClientTypes getType() {

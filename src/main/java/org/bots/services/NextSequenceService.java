@@ -1,4 +1,4 @@
-package org.bots.core;
+package org.bots.services;
 
 import org.bots.model.datebase.Sequence;
 import org.springframework.beans.factory.annotation.Autowired;

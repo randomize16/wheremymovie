@@ -1,4 +1,4 @@
-package org.bots.core;
+package org.bots.services;
 
 import org.bots.model.datebase.MessageState;
 import org.bots.model.datebase.Movie;
@@ -6,7 +6,7 @@ import org.bots.model.items.Button;
 import org.bots.model.items.MovieFileHierarchy;
 import org.bots.repository.MessageStateRepository;
 import org.bots.repository.MovieRepository;
-import org.bots.sources.SearchService;
+import org.bots.repository.UsersRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -19,13 +19,15 @@ public class MessageStateService {
     private final SearchService searchService;
     private final MessageStateRepository messageStateRepository;
     private final NextSequenceService sequanceService;
+    private final UsersRepository usersRepository;
 
 
-    public MessageStateService(MovieRepository movieRepository, SearchService searchService, MessageStateRepository messageStateRepository, NextSequenceService sequanceService) {
+    public MessageStateService(MovieRepository movieRepository, SearchService searchService, MessageStateRepository messageStateRepository, NextSequenceService sequanceService, UsersRepository usersRepository) {
         this.movieRepository = movieRepository;
         this.searchService = searchService;
         this.messageStateRepository = messageStateRepository;
         this.sequanceService = sequanceService;
+        this.usersRepository = usersRepository;
     }
 
 
@@ -56,23 +58,26 @@ public class MessageStateService {
         }
         ArrayList<Button> result = new ArrayList<>();
         if(pathList.size() > 1){
-            Button backButton = new Button();
-            backButton.setName("Back");
-            backButton.setData(pathList.stream().limit((long) (pathList.size() - 1)).reduce((s, s2) -> s + "#" + s2).orElse(""));
+            Button backButton = Button.backButton(pathList.stream()
+                    .limit((long) (pathList.size() - 1))
+                    .reduce((s, s2) -> s + "#" + s2)
+                    .orElse(""));
             result.add(backButton);
         }
+
         currentNodeMap.forEach((key,value) -> {
             Button button = new Button();
+            button.setType(Button.ButtonType.RESPONSE);
             button.setName(value.getName());
             if(value.getType() == MovieFileHierarchy.FileHierarchyType.LINK){
                 button.setUrl(value.getUrl());
             }else{
                 button.setData(path + "#" + key);
             }
+            button.setOrder(value.getOrder() == null ? 0 : value.getOrder());
             result.add(button);
         });
         return result;
     }
-
 
 }

@@ -1,4 +1,4 @@
-package org.bots.core;
+package org.bots.services;
 
 import com.google.cloud.speech.v1.*;
 import com.google.protobuf.ByteString;
