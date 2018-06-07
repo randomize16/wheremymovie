@@ -1,5 +1,7 @@
 package org.bots.model.items;
 
+import static org.bots.clients.telegram.TelegramBot.FAVORITE_COMMAND;
+
 public class Button {
     private String name;
     private String data;
@@ -73,7 +75,7 @@ public class Button {
         Button btn = new Button();
         btn.setOrder(0);
         btn.setType(ButtonType.MENU);
-        btn.setMenuType("favorite#");
+        btn.setMenuType(FAVORITE_COMMAND);
         if(add){
             btn.setName("⭐");
             btn.setData("add#" + movieId);
