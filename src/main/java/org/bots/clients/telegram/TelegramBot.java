@@ -49,6 +49,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     public static final String SEARCH_COMMAND = "/search";
     public static final String START_COMMAND = "/start";
     public static final String OPEN_COMMAND = "/open";
+    public static final String OPEN_WITH_TEXT_CALLBACK = "/openwithtext";
     public static final String FAVORITE_COMMAND = "/favorite";
 
     private final Map<String, Consumer<Message>> botCommands = new HashMap<>();
@@ -69,10 +70,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         callbacks.put(SEARCH_COMMAND, searchCallbackHandler());
         botCommands.put(OPEN_COMMAND, openHandler());
         callbacks.put(OPEN_COMMAND, openCallbackHandler());
+        callbacks.put(OPEN_WITH_TEXT_CALLBACK, openWithTextCallbackHandler());
 
+
+        botCommands.put(FAVORITE_COMMAND, favoriteHandler());
         callbacks.put(FAVORITE_COMMAND, favoriteCallbackHandler());
     }
-
 
     @Override
     public String getBotUsername() {
@@ -97,10 +100,11 @@ public class TelegramBot extends TelegramLongPollingBot {
                 handler.accept(msg);
 
         } else if (update.hasMessage() && update.getMessage().getVoice() != null) {
-            voiceSearch(update.getMessage(), update.getMessage().getChatId());
+            voiceSearch(update.getMessage(), update.getMessage().getChatId(), update.getMessage().getFrom().getId());
         } else if (update.hasCallbackQuery()) {
             if (!update.getCallbackQuery().getData().isEmpty()) {
                 CallbackQuery callback = update.getCallbackQuery();
+                sendCallbackResponse(callback.getId());
                 String[] tokens = callback.getData().split("#");
                 String command = tokens[0].toLowerCase();
                 Consumer handler = this.callbacks.get(command);
@@ -113,7 +117,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                 if (lastUserCommand == null) {
                     sendMessage("Input command first, to see all command type /commands", update.getMessage().getChatId());
                 } else {
-                    sendSearchResponse(update.getMessage().getText(),update.getMessage().getChatId());
+                    sendSearchResponse(update.getMessage().getText(),update.getMessage().getChatId(), update.getMessage().getFrom().getId());
                 }}
         }
     }
@@ -138,11 +142,11 @@ public class TelegramBot extends TelegramLongPollingBot {
         return params.size() > 1 ? params.subList(1,params.size()) : Collections.emptyList();
     }
 
-    private void sendSearchResponse(String param, Long chatId){
+    private void sendSearchResponse(String param, Long chatId, Integer userId){
 
         List<MovieSearchResponse> list = searchService.searchMovie(param);
         if(list.size() == 1){
-            sendMovie(list.get(0).getId(),chatId);
+            sendMovie(list.get(0).getId(),chatId, userId);
             return;
         }
 
@@ -184,10 +188,18 @@ public class TelegramBot extends TelegramLongPollingBot {
         sendMethod(answer);
     }
 
-    private EditMessageReplyMarkup createReplyButtons(List<Button> buttons, String menuType){
+    private EditMessageReplyMarkup createEditMessageReplyMarkup(List<Button> buttons, String menuType, Integer columns){
         EditMessageReplyMarkup editMessage = new EditMessageReplyMarkup();
         InlineKeyboardMarkup inlineKeyboardMarkup = new InlineKeyboardMarkup();
         editMessage.setReplyMarkup(inlineKeyboardMarkup);
+
+        List<List<InlineKeyboardButton>> inlineButtons =  createInlineButtons(buttons, menuType, columns);
+        inlineKeyboardMarkup.setKeyboard(inlineButtons);
+        return editMessage;
+    }
+
+    private List<List<InlineKeyboardButton>> createInlineButtons(List<Button> buttons, String menuType, Integer columns){
+
 
         List<Button> menuButtons = buttons.stream()
                 .filter(btn -> btn.getType() == Button.ButtonType.MENU)
@@ -216,39 +228,37 @@ public class TelegramBot extends TelegramLongPollingBot {
                 }).collect(Collectors.toList());
 
 
-        List<List<InlineKeyboardButton>> replyInlineButtons = Lists.partition(responseInlineButtons, 2);
+        List<List<InlineKeyboardButton>> replyInlineButtons = Lists.partition(responseInlineButtons, columns);
 
         List<List<InlineKeyboardButton>> inlineButtons = new ArrayList<>();
         inlineButtons.add(inlineMenuButtons);
         inlineButtons.addAll(replyInlineButtons);
-        inlineKeyboardMarkup.setKeyboard(inlineButtons);
-        return editMessage;
-
+        return inlineButtons;
     }
 
-    private Button createFavoriteButton(TelegramClient client, String movieId){
+    private Button createFavoriteButton(TelegramClient client, String data){
+        String movieId = data.split("#")[0];
         boolean isFavorite = userService.checkFavorite(client, Integer.valueOf(movieId));
-        if(isFavorite)
-            return Button.favoriteButton(movieId, false);
-        else
-            return Button.favoriteButton(movieId, true);
+        return Button.favoriteButton(data, isFavorite);
+
     }
 
 
-    private void sendMovie(String movieId, Long chatId) {
-        SendPhoto msg = openMovie(movieId);
-        msg.setChatId(chatId);
+    private void sendMovie(String movieId, Long chatId, Integer userId) {
+        SendPhoto msg = openMovie(movieId, chatId, userId);
+
         try {
             sendPhoto(msg);
         } catch (TelegramApiException e) {
-            e.printStackTrace();
+            log.error("Cant send movie", e);
         }
     }
 
-    private SendPhoto openMovie(String movieId){
-        Movie movie = searchService.getMovie(Integer.valueOf(movieId));
+    private SendPhoto openMovie(String movieId, Long chatId, Integer userId){
+        Movie movie = searchService.getAndSaveMovie(Integer.valueOf(movieId));
 
-        SendPhoto message = new SendPhoto();
+        SendPhoto msg = new SendPhoto();
+        msg.setChatId(chatId);
         StringBuilder str = new StringBuilder();
         str
                 .append("*Title*: ").append(movie.getTitle()).append("\n")
@@ -260,21 +270,30 @@ public class TelegramBot extends TelegramLongPollingBot {
 //                .append("*Actors*: ").append(movie.getCasts().stream().reduce((s, s2) -> s+ ", " + s2).orElse("")).append("\n")
 //                .append("*Description*: ").append(movie.getDescription()).append("\n");
 
-        message.setCaption(str.toString());
-        message.setParseMode(ParseMode.MARKDOWN);
-        message.setPhoto(movie.getPoster());
+        msg.setCaption(str.toString());
+        msg.setParseMode(ParseMode.MARKDOWN);
+        msg.setPhoto(movie.getPoster());
 
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
-        message.setReplyMarkup(keyboard);
-        List<InlineKeyboardButton> buttons = new ArrayList<>();
+        msg.setReplyMarkup(keyboard);
+
+
+        List<Button> buttons = new ArrayList<>();
+
+        boolean isFavorite = userService.checkFavorite(TelegramClient.of(userId), Integer.valueOf(movieId));
+        buttons.add(Button.favoriteButton(movieId, isFavorite));
+
         for(MovieFileHierarchy movieFileHierarchy : movie.getMovieFileHierarchy().values() ) {
-            InlineKeyboardButton button = new InlineKeyboardButton();
-            buttons.add(button);
-            button.setText(movieFileHierarchy.getName())
-                    .setCallbackData(OPEN_COMMAND + "#" + movieId + "#" + movieFileHierarchy.getName().hashCode());
+            Button btn = new Button();
+            btn.setType(Button.ButtonType.RESPONSE);
+            btn.setName(movieFileHierarchy.getName());
+            btn.setMenuType(OPEN_COMMAND);
+            btn.setData(movieId + "#" + movieFileHierarchy.getName().hashCode());
+            buttons.add(btn);
         }
-        keyboard.setKeyboard(Lists.partition(buttons, 2));
-        return message;
+
+        keyboard.setKeyboard(createInlineButtons(buttons, OPEN_COMMAND, 2));
+        return msg;
     }
 
     private List<String> getCallbackMessage(String data){
@@ -282,7 +301,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         return result.subList(1, result.size());
     }
 
-    private void voiceSearch(Message msg, Long chatId){
+    private void voiceSearch(Message msg, Long chatId, Integer userId){
         String searchText = null;
         GetFile getFileMethod = new GetFile();
         getFileMethod.setFileId(msg.getVoice().getFileId());
@@ -292,7 +311,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
-        sendSearchResponse(searchText, chatId);
+        sendSearchResponse(searchText, chatId, userId);
     }
 
     private Consumer<Message> startHandler() {
@@ -329,52 +348,92 @@ public class TelegramBot extends TelegramLongPollingBot {
 
                 sendMessage("Enter movie name to search", message.getChatId());
             }else{
-                sendSearchResponse(commandParams, message.getChatId());
+                sendSearchResponse(commandParams, message.getChatId(), message.getFrom().getId());
             }
         };
     }
 
     private Consumer<CallbackQuery> searchCallbackHandler() {
         return callbackQuery -> {
-            sendCallbackResponse(callbackQuery.getId());
             sendMovie(callbackQuery.getData().toLowerCase().replace(SEARCH_COMMAND + "#", ""),
-                    callbackQuery.getMessage().getChatId());
+                    callbackQuery.getMessage().getChatId(), callbackQuery.getFrom().getId());
         };
     }
 
     private Consumer<Message> openHandler() {
-        return message -> openMovie(message.getText().toLowerCase().replace(OPEN_COMMAND, ""));
+        return message -> sendMovie(message.getText().toLowerCase().replace(OPEN_COMMAND, ""),message.getChatId(), message.getFrom().getId());
     }
 
     private Consumer<CallbackQuery> openCallbackHandler() {
         return callbackQuery -> {
-            sendCallbackResponse(callbackQuery.getId());
             String data = callbackQuery.getData().toLowerCase().replace(OPEN_COMMAND + "#","");
-            List<Button> buttons = messageStateService.getStateByPath(
-                    data,
-                    callbackQuery.getMessage().getChatId(),
-                    callbackQuery.getMessage().getMessageId());
-            buttons.add(createFavoriteButton(TelegramClient.of(callbackQuery.getFrom().getId()), data.split("#")[0]));
-            EditMessageReplyMarkup msg = createReplyButtons(buttons, OPEN_COMMAND);
-            msg.setChatId(callbackQuery.getMessage().getChatId());
-            msg.setMessageId(callbackQuery.getMessage().getMessageId());
+            EditMessageReplyMarkup msg = createEditMessageReplyMarkup(data, callbackQuery.getFrom().getId(),
+                    callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId());
             sendMethod(msg);
-
         };
     }
 
+    private Consumer<CallbackQuery> openWithTextCallbackHandler() {
+        return callbackQuery -> sendMovie(callbackQuery.getData().replace(OPEN_WITH_TEXT_CALLBACK + "#",""),callbackQuery.getMessage().getChatId(), callbackQuery.getFrom().getId());
+    }
+
+    private EditMessageReplyMarkup createEditMessageReplyMarkup(String data, Integer userId, Long chatId, Integer messageId){
+        List<Button> buttons = messageStateService.getStateByPath(data, chatId, messageId);
+        buttons.add(createFavoriteButton(TelegramClient.of(userId), data));
+
+        EditMessageReplyMarkup msg = createEditMessageReplyMarkup(buttons, OPEN_COMMAND, 2);
+        msg.setChatId(chatId);
+        msg.setMessageId(messageId);
+        return msg;
+    }
+
+    private Consumer<Message> favoriteHandler() {
+        return message -> {
+            List<Integer> favorites = userService.getFavorites(TelegramClient.of(message.getFrom().getId()));
+            List<Movie> favoriteMovies = searchService.getMovieByIdList(favorites);
+
+            SendMessage msg = new SendMessage();
+            msg.setChatId(message.getChatId());
+            msg.setText("*You favorite list size: *" + favoriteMovies.size());
+            msg.setParseMode(ParseMode.MARKDOWN);
+
+            List<Button> buttons = createFavoriteButtons(favoriteMovies);
+            List<List<InlineKeyboardButton>> inlineButons = createInlineButtons(buttons, OPEN_WITH_TEXT_CALLBACK, 1);
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+            keyboard.setKeyboard(inlineButons);
+            msg.setReplyMarkup(keyboard);
+
+            sendMethod(msg);
+        };
+    }
 
     private Consumer<CallbackQuery> favoriteCallbackHandler() {
-        return callbackQuery ->
-                userService.changeFavorites(TelegramClient.of(callbackQuery.getFrom().getId()),
-                        user -> {
-                            List<String> data = getCallbackMessage(callbackQuery.getData());
-                            if (data.get(0).equalsIgnoreCase("add")) {
-                                user.getFavorites().add(Integer.valueOf(data.get(1)));
-                            } else {
-                                user.getFavorites().remove(Integer.valueOf(data.get(1)));
-                            }
-                        });
+        return callbackQuery -> {
+            userService.changeFavorites(TelegramClient.of(callbackQuery.getFrom().getId()),
+                    user -> {
+                        List<String> data = getCallbackMessage(callbackQuery.getData());
+                        if(user.getFavorites().contains(Integer.valueOf(data.get(0))))
+                            user.getFavorites().remove(Integer.valueOf(data.get(0)));
+                        else
+                            user.getFavorites().add(Integer.valueOf(data.get(0)));
+                    }
+            );
+            EditMessageReplyMarkup msg = createEditMessageReplyMarkup(callbackQuery.getData().replace(FAVORITE_COMMAND + "#", ""), callbackQuery.getFrom().getId(), callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId());
+            sendMethod(msg);
+        };
+    }
+
+    private List<Button> createFavoriteButtons(List<Movie> movieIds){
+        List<Button> result = new ArrayList<>();
+        if(movieIds != null && !movieIds.isEmpty())
+            movieIds.forEach(movie -> {
+                Button btn = new Button();
+                btn.setType(Button.ButtonType.RESPONSE);
+                btn.setData(movie.getId().toString());
+                btn.setName(movie.getTitle());
+                result.add(btn);
+            });
+        return result;
     }
 
 }
