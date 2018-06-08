@@ -32,10 +32,15 @@ public class SearchService {
         return response;
     }
 
-    public Movie getMovie(Integer id){
+    public Movie getAndSaveMovie(Integer id){
         Movie movie = filmixSource.getMovieById(id);
         movieRepository.save(movie);
         return movie;
+    }
+
+    public List<Movie> getMovieByIdList(List<Integer> ids){
+        List<Movie> movies = movieRepository.findAllByIdIn(ids);
+        return movies;
     }
 
     private void combineResponses() {

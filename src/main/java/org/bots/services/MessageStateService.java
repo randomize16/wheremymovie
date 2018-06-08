@@ -37,7 +37,7 @@ public class MessageStateService {
         if(messageState == null){
             Movie movie = movieRepository.findById(Integer.valueOf(pathList.get(0)));
             if( movie == null)
-                movie = searchService.getMovie(Integer.valueOf(pathList.get(0)));
+                movie = searchService.getAndSaveMovie(Integer.valueOf(pathList.get(0)));
             messageState = new MessageState();
             messageState.setChatId(chatId);
             messageState.setMessageId(messageId);
