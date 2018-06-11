@@ -1,35 +1,28 @@
 package org.bots.services;
 
+import lombok.AllArgsConstructor;
 import org.bots.model.datebase.MessageState;
 import org.bots.model.datebase.Movie;
 import org.bots.model.items.Button;
 import org.bots.model.items.MovieFileHierarchy;
 import org.bots.repository.MessageStateRepository;
 import org.bots.repository.MovieRepository;
-import org.bots.repository.UsersRepository;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
+@AllArgsConstructor
 public class MessageStateService {
 
     private final MovieRepository movieRepository;
     private final SearchService searchService;
     private final MessageStateRepository messageStateRepository;
     private final NextSequenceService sequanceService;
-    private final UsersRepository usersRepository;
-
-
-    public MessageStateService(MovieRepository movieRepository, SearchService searchService, MessageStateRepository messageStateRepository, NextSequenceService sequanceService, UsersRepository usersRepository) {
-        this.movieRepository = movieRepository;
-        this.searchService = searchService;
-        this.messageStateRepository = messageStateRepository;
-        this.sequanceService = sequanceService;
-        this.usersRepository = usersRepository;
-    }
-
 
     public List<Button> getStateByPath(String path, Long chatId, Integer messageId){
         MessageState messageState = messageStateRepository.getByChatIdAndMessageId(chatId,messageId);

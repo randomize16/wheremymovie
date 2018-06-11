@@ -324,9 +324,9 @@ public class TelegramBot extends TelegramLongPollingBot {
             ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
             List<KeyboardRow> keyboard = new ArrayList<>();
             KeyboardRow row = new KeyboardRow();
-            row.add("/Favorites");
+            row.add(FAVORITE_COMMAND);
             row.add("/Settings");
-            row.add("/Search");
+            row.add(SEARCH_COMMAND);
             keyboard.add(row);
             row = new KeyboardRow();
             row.add("/Films");

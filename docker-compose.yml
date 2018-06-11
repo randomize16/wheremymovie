@@ -1,0 +1,13 @@
+version: '2.2'
+services:
+  mongo:
+    image: mongo
+    container_name: botdb
+  wheremymovie:
+    build:
+      dockerfile: Dockerfile
+    container_name: botapp
+    depends_on:
+      - mongo
+    links:
+      - mongo
