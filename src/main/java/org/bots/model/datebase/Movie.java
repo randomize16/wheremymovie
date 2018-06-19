@@ -1,14 +1,11 @@
 package org.bots.model.datebase;
 
 import lombok.Data;
-import org.bots.model.items.MovieFileHierarchy;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDate;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @Data
 @Document(collection = "movie")
@@ -32,10 +29,7 @@ public class Movie {
     private String poster;
     private Boolean withPlaylist = false;
     private List<String> categories;
-    private Map<String, List<MovieFile>> movieFiles;
-
-
-    private Map<Integer, MovieFileHierarchy> movieFileHierarchy = new LinkedHashMap<>();
+    private List<MovieFile> movieFiles;
 
     public enum FilmTypes {
         FILM,

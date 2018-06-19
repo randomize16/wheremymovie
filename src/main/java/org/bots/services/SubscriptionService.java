@@ -4,19 +4,17 @@ import lombok.AllArgsConstructor;
 import org.bots.model.datebase.Client;
 import org.bots.model.datebase.Subscription;
 import org.bots.repository.SubscriptionRepository;
-import org.springframework.scheduling.annotation.Async;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.Optional;
 
+@Service
 @AllArgsConstructor
 public class SubscriptionService {
 
     private final SubscriptionRepository subscriptionRepository;
-    private final SearchService searchService;
 
-    public void subscribe(Integer movieId, Client client){
+    private void subscribe(Client client, Integer movieId){
         Subscription subscription;
         Optional<Subscription> result = subscriptionRepository.findById(movieId);
         if(result.isPresent()){
@@ -29,7 +27,7 @@ public class SubscriptionService {
         subscriptionRepository.save(subscription);
     }
 
-    public void unsubscribe(Integer movieId, Client client){
+    private void unsubscribe(Client client, Integer movieId){
         Optional<Subscription> result = subscriptionRepository.findById(movieId);
         if(result.isPresent()){
             Subscription subscription = result.get();
@@ -41,23 +39,8 @@ public class SubscriptionService {
         }
     }
 
-    public boolean isSubscribed(Integer movieId, Client client){
+    private boolean isSubscribed(Client client, Integer movieId){
         return subscriptionRepository.existsByMovieIdAndSubscribers(movieId, client);
-    }
-
-    @Scheduled(fixedRate = 5000)
-    private void getUpdates(){
-        List<Subscription> result = subscriptionRepository.findAll();
-        if(!result.isEmpty()){
-            result.forEach(this::processSubscriptionUpdates);
-        }
-    }
-
-    @Async
-    void processSubscriptionUpdates(Subscription subscription){
-//        Integer movieId = subscription.getMovieId();
-//        Movie movie = searchService.getAndSaveMovie(movieId);
-        System.out.println("asdasd");
     }
 
 }

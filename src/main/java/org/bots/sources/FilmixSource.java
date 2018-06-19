@@ -1,9 +1,9 @@
 package org.bots.sources;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.bots.model.datebase.Movie;
 import org.bots.model.datebase.MovieFile;
-import org.bots.model.items.MovieFileHierarchy;
 import org.bots.model.items.MovieSearchResponse;
 import org.bots.model.sources.FilmixDataResponse;
 import org.bots.model.sources.FilmixFilesMessage;
@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 import static org.bots.common.Constants.FILMIX_SUCCESS;
 
 @Component
+@Slf4j
 public class FilmixSource implements MovieSources {
 
     private static final String SOURCE = "filmix";
@@ -69,8 +70,8 @@ public class FilmixSource implements MovieSources {
     public Movie getMovieById(Integer id) {
         String token = null;
         Movie movie = getMovie(id, token);
-        List<MovieFile> movieFiles = fillMovieFiles(String.valueOf(id), "60kl9voiena7uqsog0gpel8l55");
-        movie.setMovieFiles(Collections.singletonMap("filmix", movieFiles));
+        List<MovieFile> movieFiles = fillMovieFiles(movie, "60kl9voiena7uqsog0gpel8l55");
+        movie.setMovieFiles( movieFiles);
         return movie;
     }
 
@@ -112,19 +113,15 @@ public class FilmixSource implements MovieSources {
             resultMovie.setRatio(ratio.get(0).childNode(0).outerHtml());
 
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Error parsing movie description", e);
         }
 
         return resultMovie;
     }
 
-    private void fillMoviePlaylist(){
-
-    }
-
-    private List<MovieFile> fillMovieFiles(String movieId, String filmixToken) {
+    private List<MovieFile> fillMovieFiles(Movie movie, String filmixToken) {
         MultiValueMap<String, String> requestParams = new LinkedMultiValueMap<>();
-        requestParams.add("post_id", movieId);
+        requestParams.add("post_id", String.valueOf(movie.getId()));
 
         Map<String, String> headers = new HashMap<>();
         headers.put("Cookie", "FILMIXNET=" + filmixToken);
@@ -132,7 +129,7 @@ public class FilmixSource implements MovieSources {
         try {
             response = sendRestRequest(dataUrl, requestParams, headers, FilmixDataResponse.class);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Error getting movie file list", e);
         }
         List<MovieFile> movieFiles = new ArrayList<>();
 
@@ -140,6 +137,7 @@ public class FilmixSource implements MovieSources {
             if (response.getMessage() != null && response.getMessage().getTranslations() != null) {
                 FilmixFilesMessage.Translation translation = response.getMessage().getTranslations();
                 if (PLAYLIST_TRUE.equalsIgnoreCase(translation.getPlaylist())) {
+                    movie.setWithPlaylist(true);
                     translation.getFlash().forEach((key, value) -> {
                         movieFiles.addAll(createPlaylist(key, decoder(value)));
                     });
@@ -147,8 +145,8 @@ public class FilmixSource implements MovieSources {
                     translation.getFlash().forEach((key, value) -> {
                         MovieFile movieFile = new MovieFile();
                         movieFile.setName(key);
-                        movieFile.setSource("filmix");
-                        movieFile.setUrl(decoder(value));
+                        movieFile.setSource(SOURCE);
+                        movieFile.setUrls(generateFileLinkMap(decoder(value)));
                         movieFiles.add(movieFile);
                     });
                 }
@@ -168,7 +166,7 @@ public class FilmixSource implements MovieSources {
             String decoded = decoder(response.getBody());
             filmixPlaylist = mapper.readValue(decoded, FilmixPlaylist.class);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Error creating playlist", e);
         }
         if(filmixPlaylist != null) {
             List<FilmixPlaylist> grouped = filmixPlaylist.getPlaylist()
@@ -187,91 +185,22 @@ public class FilmixSource implements MovieSources {
         movieFile.setName(filmixFile.getComment());
         movieFile.setSeason(Integer.valueOf(filmixFile.getSeason()));
         movieFile.setSeries(Integer.valueOf(filmixFile.getSerieId()));
-        movieFile.setUrl(filmixFile.getFile());
+        movieFile.setUrls(generateFileLinkMap(filmixFile.getFile()));
         movieFile.setTranslation(translation);
         return movieFile;
     }
 
-//    private void  createFileHierarchy(){
-//
-//            if (PLAYLIST_TRUE.equalsIgnoreCase(translation.getPlaylist())) {
-//                AtomicInteger order = new AtomicInteger();
-//                translation.getFlash().forEach((key, value) -> {
-//                    MovieFileHierarchy folder = MovieFileHierarchy.createFolder(key);
-//                    folder.setOrder(order.getAndIncrement());
-//                    movie.getMovieFileHierarchy().put(folder.getName().hashCode(), folder);
-//                    folder.setChildren(generatePlaylistHierarchy(decoder(value)));
-//                });
-//            } else {
-//                AtomicInteger order = new AtomicInteger();
-//                translation.getFlash().forEach((key, value) -> {
-//                    MovieFileHierarchy fileLink = MovieFileHierarchy.createFile(key, decoder(value));
-//
-//                    fileLink.setOrder(order.getAndIncrement());
-//                    movie.getMovieFileHierarchy().put(fileLink.getName().hashCode(), fileLink);
-//                });
-//            }
-//            generateFileLinks(movie.getMovieFileHierarchy());
-//
-//    }
-
-
-    private Map<Integer, MovieFileHierarchy> generatePlaylistHierarchy(String url) {
-        Map<Integer, MovieFileHierarchy> resultMap = new HashMap<>();
-        FilmixPlaylist filmixPlaylist = null;
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("Cookie", "FILMIXNET=6o53jodaeddcie9i5kca1qk9j7");
-            HttpEntity<String> request = new HttpEntity<>(null, headers);
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
-            String decoded = decoder(response.getBody());
-            filmixPlaylist = mapper.readValue(decoded, FilmixPlaylist.class);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        if(filmixPlaylist != null){
-            Map<String, List<FilmixPlaylist>> grouped = filmixPlaylist.getPlaylist()
-                    .stream()
-                    .map(FilmixPlaylist::getPlaylist)
-                    .flatMap(Collection::stream)
-                    .collect(Collectors.groupingBy(FilmixPlaylist::getSeason, Collectors.toList()));
-            grouped.forEach((season, series) -> {
-                MovieFileHierarchy seasonHierarchy = MovieFileHierarchy.createFolder("Сезон " + season);
-                seasonHierarchy.setChildren(new HashMap<>());
-                seasonHierarchy.setOrder(Integer.valueOf(season));
-                resultMap.put(seasonHierarchy.getName().hashCode(),seasonHierarchy);
-                series.forEach(pl -> {
-                    MovieFileHierarchy seria = MovieFileHierarchy.createFile("Серия " + pl.getSerieId(), pl.getFile());
-                    seria.setOrder(Integer.valueOf(pl.getSerieId()));
-                    seasonHierarchy.getChildren().put(seria.getName().hashCode(), seria);
-                });
+    private Map<String, String> generateFileLinkMap(final String url){
+        Map<String,String> result = new LinkedHashMap<>();
+        Matcher m = p.matcher( url);
+        if(m.matches()){
+            String qualityStr = m.group(1);
+            List<String> qualityList = makeQualityList(qualityStr);
+            qualityList.forEach(s -> {
+                result.put(s, url.replace(qualityStr, s));
             });
         }
-        return resultMap;
-    }
-
-    private void generateFileLinks(Map<Integer, MovieFileHierarchy> movieFileHierarchies){
-
-        if(movieFileHierarchies != null){
-            movieFileHierarchies.forEach((value, child) -> {
-                if(child.getType() == MovieFileHierarchy.FileHierarchyType.FILE){
-                    if(child.getUrl() != null){
-                        Matcher m = p.matcher( child.getUrl());
-                        if(m.matches()){
-                            child.setChildren(new HashMap<>());
-                            String qualityStr = m.group(1);
-                            List<String> qualityList = makeQualityList(qualityStr);
-                            qualityList.forEach(s -> {
-                                child.getChildren().put(s.hashCode(), MovieFileHierarchy.createLink(s, child.getUrl().replace(qualityStr, s)));
-//                                child.getChildren().put(("vlc:" + s).hashCode(), MovieFileHierarchy.createLink("vlc:" + s, child.getUrl().replace(qualityStr, s).replace("http", "vlc")));
-                            });
-                        }
-                    }
-                }else{
-                    generateFileLinks(child.getChildren());
-                }
-            });
-        }
+        return result;
     }
 
     private List<String> makeQualityList(String qualityList) {

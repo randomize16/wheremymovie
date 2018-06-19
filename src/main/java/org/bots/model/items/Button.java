@@ -2,6 +2,7 @@ package org.bots.model.items;
 
 import static org.bots.clients.telegram.TelegramBot.FAVORITE_COMMAND;
 import static org.bots.clients.telegram.TelegramBot.OPEN_COMMAND;
+import static org.bots.clients.telegram.TelegramBot.SUBSCRIBE_COMMAND;
 
 public class Button {
     private String name;
@@ -84,6 +85,21 @@ public class Button {
             btn.setName("⭐");
         else{
             btn.setName("⛔");
+        }
+        return btn;
+    }
+
+    public static Button subscribeButton(String movieId, boolean isSubscribed) {
+        Button btn = new Button();
+        btn.setOrder(1);
+        btn.setType(ButtonType.MENU);
+        btn.setMenuType(SUBSCRIBE_COMMAND);
+        btn.setData(movieId);
+        btn.setMenuType(SUBSCRIBE_COMMAND);
+        if(!isSubscribed)
+            btn.setName("⏰");
+        else{
+            btn.setName("☠");
         }
         return btn;
     }

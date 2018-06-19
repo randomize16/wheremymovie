@@ -2,6 +2,8 @@ package org.bots.model.datebase;
 
 import lombok.Data;
 
+import java.util.Map;
+
 @Data
 public class MovieFile {
     private String name;
@@ -9,5 +11,5 @@ public class MovieFile {
     private Integer season;
     private String translation;
     private String source;
-    private String url;
+    private Map<String,String> urls;
 }

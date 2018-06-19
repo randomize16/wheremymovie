@@ -1,8 +1,9 @@
 package org.bots.model.datebase;
 
-import org.bots.clients.ClientTypes;
+import org.bots.clients.BotPlatformType;
 
 public interface Client {
-    ClientTypes getType();
+    BotPlatformType getType();
     Integer getClientId();
+    Long getChatId();
 }
