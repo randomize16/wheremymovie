@@ -53,12 +53,7 @@ public class MessageStateService {
             i++;
         }        ArrayList<Button> result = new ArrayList<>();
         if(pathList.size() > 1){
-            Button backButton = new Button();
-            backButton.setName("Back");
-            backButton.setType(Button.ButtonType.RESPONSE);
-            backButton.setOrder(-1);
-            backButton.setData(pathList.stream().limit((long) (pathList.size() - 1)).reduce((s, s2) -> s + "#" + s2).orElse(""));
-            result.add(backButton);
+            result.add(Button.backButton(pathList.stream().limit((long) (pathList.size() - 1)).reduce((s, s2) -> s + "#" + s2).orElse("")));
         }
         currentNodeMap.forEach((key,value) -> {
             Button button = new Button();
@@ -81,7 +76,7 @@ public class MessageStateService {
 
         Map<Integer, List<MovieFile>> groupBySeason = movieFiles.stream().collect(Collectors.groupingBy(MovieFile::getSeason, Collectors.toList()));
         groupBySeason.forEach((season, seasonMfList) ->{
-            MovieFileHierarchy seasonHierarchy = MovieFileHierarchy.createSeason(String.valueOf(season));
+            MovieFileHierarchy seasonHierarchy = MovieFileHierarchy.createSeason("Season" + season);
             result.put( season, seasonHierarchy);
             seasonHierarchy.setOrder(season);
             seasonHierarchy.setChildren(new LinkedHashMap<>());
@@ -96,7 +91,7 @@ public class MessageStateService {
 
 
                 seriesList.forEach(series -> {
-                    MovieFileHierarchy seriesHierarchy = MovieFileHierarchy.createSeries(String.valueOf(series.getSeries()));
+                    MovieFileHierarchy seriesHierarchy = MovieFileHierarchy.createSeries("Series " + series.getSeries());
                     translationHierarchy.getChildren().put(series.getSeries(), seriesHierarchy);
                     seriesHierarchy.setOrder(series.getSeries());
                     seriesHierarchy.setChildren(new LinkedHashMap<>());

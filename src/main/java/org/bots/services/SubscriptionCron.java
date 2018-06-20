@@ -11,6 +11,7 @@ import org.bots.repository.MovieRepository;
 import org.bots.repository.SubscriptionRepository;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,7 +20,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-
+@Component
 @AllArgsConstructor
 public class SubscriptionCron {
 
@@ -29,7 +30,7 @@ public class SubscriptionCron {
     private final List<BotPlatform> botPlatforms;
 
 
-    @Scheduled(fixedRate = 5000)
+    @Scheduled(cron = "0 0 10,17 * * *")
     void getUpdates(){
         List<Subscription> result = subscriptionRepository.findAll();
         if(!result.isEmpty()){

@@ -7,6 +7,7 @@ import org.bots.repository.SubscriptionRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @AllArgsConstructor
@@ -27,11 +28,14 @@ public class SubscriptionService {
         subscriptionRepository.save(subscription);
     }
 
-    private void unsubscribe(Client client, Integer movieId){
+    public void unsubscribe(Client client, Integer movieId){
         Optional<Subscription> result = subscriptionRepository.findById(movieId);
         if(result.isPresent()){
             Subscription subscription = result.get();
-            subscription.getSubscribers().remove(client);
+            subscription.setSubscribers(subscription.getSubscribers().stream().filter(cl -> !(cl.getChatId().equals(client.getChatId())
+                    && cl.getType().equals(client.getType())
+                    && cl.getClientId().equals(client.getClientId())))
+                    .collect(Collectors.toList()));
             if(subscription.getSubscribers().isEmpty())
                 subscriptionRepository.delete(subscription);
             else
@@ -39,8 +43,16 @@ public class SubscriptionService {
         }
     }
 
-    private boolean isSubscribed(Client client, Integer movieId){
+    public boolean isSubscribed(Client client, Integer movieId){
         return subscriptionRepository.existsByMovieIdAndSubscribers(movieId, client);
+    }
+
+    public void changeSubscriptinState(Client client, Integer movieId){
+       if(isSubscribed(client, movieId)){
+           unsubscribe(client,movieId);
+       }else{
+           subscribe(client, movieId);
+       }
     }
 
 }

@@ -166,11 +166,6 @@ public class TelegramBot extends TelegramLongPollingBot implements BotPlatform {
         sendMethod(msg);
     }
 
-    private List<String> getCommandParamsFromText(String text){
-        List<String> params = Arrays.asList(text.split(" "));
-        return params.size() > 1 ? params.subList(1,params.size()) : Collections.emptyList();
-    }
-
     private void sendSearchResponse(String param, Long chatId, Integer userId){
 
         List<MovieSearchResponse> list = searchService.searchMovie(param);
@@ -268,10 +263,10 @@ public class TelegramBot extends TelegramLongPollingBot implements BotPlatform {
         String movieId = data.split("#")[0];
         boolean isFavorite = userService.checkFavorite(client, Integer.valueOf(movieId));
         resultButtons.add(Button.favoriteButton(data, isFavorite));
-//        if(isFavorite){
-//            boolean isSubscribed = subscriptionService.isSubscribed(client, Integer.valueOf(movieId));
-//            resultButtons.add(Button.subscribeButton(movieId, isSubscribed));
-//        }
+        if(isFavorite){
+            boolean isSubscribed = subscriptionService.isSubscribed(client, Integer.valueOf(movieId));
+            resultButtons.add(Button.subscribeButton(data, isSubscribed));
+        }
         return resultButtons;
 
     }
@@ -425,7 +420,7 @@ public class TelegramBot extends TelegramLongPollingBot implements BotPlatform {
             msg.setText("*You favorite list size: *" + favoriteMovies.size());
             msg.setParseMode(ParseMode.MARKDOWN);
 
-            List<Button> buttons = createFavoriteButtons(favoriteMovies);
+            List<Button> buttons = createFavoriteListButtons(favoriteMovies);
             List<List<InlineKeyboardButton>> inlineButtons = createInlineButtons(buttons, OPEN_WITH_TEXT_CALLBACK, 1);
             InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
             keyboard.setKeyboard(inlineButtons);
@@ -435,7 +430,7 @@ public class TelegramBot extends TelegramLongPollingBot implements BotPlatform {
         };
     }
 
-    private List<Button> createFavoriteButtons(List<Movie> movieIds){
+    private List<Button> createFavoriteListButtons(List<Movie> movieIds){
         List<Button> result = new ArrayList<>();
         if(movieIds != null && !movieIds.isEmpty())
             movieIds.forEach(movie -> {
@@ -450,11 +445,14 @@ public class TelegramBot extends TelegramLongPollingBot implements BotPlatform {
 
     private Consumer<CallbackQuery> favoriteCallbackHandler() {
         return callbackQuery -> {
-            userService.changeFavorites(TelegramClient.of(callbackQuery.getFrom().getId(), callbackQuery.getMessage().getChatId()),
+            TelegramClient client = TelegramClient.of(callbackQuery.getFrom().getId(), callbackQuery.getMessage().getChatId());
+            userService.changeFavorites(client,
                     user -> {
                         List<String> data = getCallbackMessage(callbackQuery.getData());
-                        if(user.getFavorites().contains(Integer.valueOf(data.get(0))))
+                        if(user.getFavorites().contains(Integer.valueOf(data.get(0)))){
                             user.getFavorites().remove(Integer.valueOf(data.get(0)));
+                            subscriptionService.unsubscribe(client, Integer.valueOf(data.get(0)));
+                        }
                         else
                             user.getFavorites().add(Integer.valueOf(data.get(0)));
                     }
@@ -466,7 +464,12 @@ public class TelegramBot extends TelegramLongPollingBot implements BotPlatform {
 
     private Consumer<CallbackQuery> subscribeCallbackHandler() {
         return callbackQuery -> {
-            subscriptionService.changeSubscription();
+            List<String> data = getCallbackMessage(callbackQuery.getData());
+            subscriptionService.changeSubscriptinState(TelegramClient.of(callbackQuery.getFrom().getId(), callbackQuery.getMessage().getChatId()), Integer.valueOf(data.get(0)));
+
+            EditMessageReplyMarkup msg = createEditMessageReplyMarkup(callbackQuery.getData().replace(SUBSCRIBE_COMMAND + "#", ""), callbackQuery.getFrom().getId(), callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId());
+            sendMethod(msg);
+
         };
     }
 
