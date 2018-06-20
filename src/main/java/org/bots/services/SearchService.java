@@ -1,5 +1,6 @@
 package org.bots.services;
 
+import lombok.AllArgsConstructor;
 import org.bots.model.datebase.Movie;
 import org.bots.model.items.MovieSearchResponse;
 import org.bots.repository.MovieRepository;
@@ -11,17 +12,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
+@AllArgsConstructor
 public class SearchService {
 
     private final List<MovieSources> sources;
     private final FilmixSource filmixSource;
     private final MovieRepository movieRepository;
-
-    public SearchService(List<MovieSources> sources, FilmixSource filmixSource, MovieRepository movieRepository) {
-        this.sources = sources;
-        this.filmixSource = filmixSource;
-        this.movieRepository = movieRepository;
-    }
 
     public List<MovieSearchResponse> searchMovie(String name){
 

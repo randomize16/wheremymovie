@@ -1,6 +1,6 @@
 package org.bots.clients;
 
-public enum ClientTypes {
+public enum BotPlatformType {
     TELEGRAM,
     FACEBOOK;
 }

@@ -1,5 +1,6 @@
 package org.bots.services;
 
+import lombok.AllArgsConstructor;
 import org.bots.model.datebase.Client;
 import org.bots.model.datebase.User;
 import org.bots.repository.UsersRepository;
@@ -11,15 +12,11 @@ import java.util.List;
 import java.util.function.Consumer;
 
 @Service
+@AllArgsConstructor
 public class UserService {
 
     private final UsersRepository usersRepository;
     private final NextSequenceService nextSequenceService;
-
-    public UserService(UsersRepository usersRepository, NextSequenceService nextSequenceService) {
-        this.usersRepository = usersRepository;
-        this.nextSequenceService = nextSequenceService;
-    }
 
     public boolean registerUser(String firstName, String username, Client client){
         User user = usersRepository.findByClients(client);

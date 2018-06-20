@@ -2,15 +2,14 @@ package org.bots.clients.telegram;
 
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
+import org.bots.clients.BotPlatform;
+import org.bots.clients.BotPlatformType;
+import org.bots.model.datebase.Client;
 import org.bots.model.datebase.Movie;
 import org.bots.model.datebase.TelegramClient;
 import org.bots.model.items.Button;
-import org.bots.model.items.MovieFileHierarchy;
 import org.bots.model.items.MovieSearchResponse;
-import org.bots.services.MessageStateService;
-import org.bots.services.SearchService;
-import org.bots.services.UserService;
-import org.bots.services.VoiceRecognitionService;
+import org.bots.services.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.api.methods.AnswerCallbackQuery;
@@ -30,27 +29,32 @@ import org.telegram.telegrambots.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.exceptions.TelegramApiException;
 
+import javax.annotation.PostConstruct;
 import java.io.File;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+import static org.bots.clients.BotPlatformType.TELEGRAM;
 import static org.bots.common.Constants.BOT_NAME;
 
 @Component
 @Slf4j
-public class TelegramBot extends TelegramLongPollingBot {
+public class TelegramBot extends TelegramLongPollingBot implements BotPlatform {
 
     private final SearchService searchService;
     private final MessageStateService messageStateService;
     private final VoiceRecognitionService voiceRecognitionService;
     private final UserService userService;
+    private final SubscriptionService subscriptionService;
 
     public static final String SEARCH_COMMAND = "/search";
     public static final String START_COMMAND = "/start";
     public static final String OPEN_COMMAND = "/open";
     public static final String OPEN_WITH_TEXT_CALLBACK = "/openwithtext";
     public static final String FAVORITE_COMMAND = "/favorite";
+    public static final String SUBSCRIBE_COMMAND = "/subscribe";
+
 
     private final Map<String, Consumer<Message>> botCommands = new HashMap<>();
     private final Map<String, Consumer<CallbackQuery>> callbacks = new HashMap<>();
@@ -58,12 +62,35 @@ public class TelegramBot extends TelegramLongPollingBot {
     @Value("${telegram.token}")
     private String token;
 
-    public TelegramBot(SearchService searchService, MessageStateService messageStateService, VoiceRecognitionService voiceRecognitionService, UserService userService) {
+    public TelegramBot(SearchService searchService,
+                       MessageStateService messageStateService,
+                       VoiceRecognitionService voiceRecognitionService,
+                       UserService userService,
+                       SubscriptionService subscriptionService) {
         this.searchService = searchService;
         this.messageStateService = messageStateService;
         this.voiceRecognitionService = voiceRecognitionService;
         this.userService = userService;
+        this.subscriptionService = subscriptionService;
+    }
 
+    @Override
+    public BotPlatformType getType() {
+        return TELEGRAM;
+    }
+
+    @Override
+    public void sendSubsriptionMessage(Client client, String text) {
+
+        SendMessage message = new SendMessage();
+        message.setChatId(client.getChatId());
+        message.setText(text);
+        sendMethod(message);
+
+    }
+
+    @PostConstruct
+    private void init(){
         botCommands.put(START_COMMAND, startHandler());
 
         botCommands.put(SEARCH_COMMAND, searchHandler());
@@ -72,10 +99,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         callbacks.put(OPEN_COMMAND, openCallbackHandler());
         callbacks.put(OPEN_WITH_TEXT_CALLBACK, openWithTextCallbackHandler());
 
-
         botCommands.put(FAVORITE_COMMAND, favoriteHandler());
         callbacks.put(FAVORITE_COMMAND, favoriteCallbackHandler());
+
+        callbacks.put(SUBSCRIBE_COMMAND, subscribeCallbackHandler());
     }
+
 
     @Override
     public String getBotUsername() {
@@ -113,7 +142,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             }
         } else {
             if (update.hasMessage() && update.getMessage().hasText()) {
-                String lastUserCommand = userService.takeActiveCommand(TelegramClient.of(update.getMessage().getFrom().getId()));
+                String lastUserCommand = userService.takeActiveCommand(TelegramClient.of(update.getMessage().getFrom().getId(), update.getMessage().getChatId()));
                 if (lastUserCommand == null) {
                     sendMessage("Input command first, to see all command type /commands", update.getMessage().getChatId());
                 } else {
@@ -135,11 +164,6 @@ public class TelegramBot extends TelegramLongPollingBot {
         msg.setText(message);
         msg.setChatId(chatId);
         sendMethod(msg);
-    }
-
-    private List<String> getCommandParamsFromText(String text){
-        List<String> params = Arrays.asList(text.split(" "));
-        return params.size() > 1 ? params.subList(1,params.size()) : Collections.emptyList();
     }
 
     private void sendSearchResponse(String param, Long chatId, Integer userId){
@@ -199,8 +223,6 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private List<List<InlineKeyboardButton>> createInlineButtons(List<Button> buttons, String menuType, Integer columns){
-
-
         List<Button> menuButtons = buttons.stream()
                 .filter(btn -> btn.getType() == Button.ButtonType.MENU)
                 .collect(Collectors.toList());
@@ -236,10 +258,16 @@ public class TelegramBot extends TelegramLongPollingBot {
         return inlineButtons;
     }
 
-    private Button createFavoriteButton(TelegramClient client, String data){
+    private List<Button> createMenuButtons(TelegramClient client, String data){
+        List<Button> resultButtons = new ArrayList<>();
         String movieId = data.split("#")[0];
         boolean isFavorite = userService.checkFavorite(client, Integer.valueOf(movieId));
-        return Button.favoriteButton(data, isFavorite);
+        resultButtons.add(Button.favoriteButton(data, isFavorite));
+        if(isFavorite){
+            boolean isSubscribed = subscriptionService.isSubscribed(client, Integer.valueOf(movieId));
+            resultButtons.add(Button.subscribeButton(data, isSubscribed));
+        }
+        return resultButtons;
 
     }
 
@@ -256,6 +284,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private SendPhoto openMovie(String movieId, Long chatId, Integer userId){
         Movie movie = searchService.getAndSaveMovie(Integer.valueOf(movieId));
+        List<Button> buttons = messageStateService.getInitialButtons(movie);
 
         SendPhoto msg = new SendPhoto();
         msg.setChatId(chatId);
@@ -278,18 +307,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         msg.setReplyMarkup(keyboard);
 
 
-        List<Button> buttons = new ArrayList<>();
-
-        boolean isFavorite = userService.checkFavorite(TelegramClient.of(userId), Integer.valueOf(movieId));
+        boolean isFavorite = userService.checkFavorite(TelegramClient.of(userId, chatId), Integer.valueOf(movieId));
         buttons.add(Button.favoriteButton(movieId, isFavorite));
 
-        for(MovieFileHierarchy movieFileHierarchy : movie.getMovieFileHierarchy().values() ) {
-            Button btn = new Button();
-            btn.setType(Button.ButtonType.RESPONSE);
-            btn.setName(movieFileHierarchy.getName());
-            btn.setMenuType(OPEN_COMMAND);
-            btn.setData(movieId + "#" + movieFileHierarchy.getName().hashCode());
-            buttons.add(btn);
+        if(isFavorite){
+            boolean isSubscribed = subscriptionService.isSubscribed(TelegramClient.of(userId, chatId), Integer.valueOf(movieId));
+            buttons.add(Button.subscribeButton(movieId, isSubscribed));
         }
 
         keyboard.setKeyboard(createInlineButtons(buttons, OPEN_COMMAND, 2));
@@ -309,14 +332,14 @@ public class TelegramBot extends TelegramLongPollingBot {
             File file = downloadFile(execute(getFileMethod).getFilePath());
             searchText = voiceRecognitionService.recognizeVoice(file);
         } catch (TelegramApiException e) {
-            e.printStackTrace();
+            log.error("Error when trying recognize voice");
         }
         sendSearchResponse(searchText, chatId, userId);
     }
 
     private Consumer<Message> startHandler() {
         return msg -> {
-            userService.registerUser(msg.getFrom().getFirstName(), msg.getFrom().getUserName(), TelegramClient.of(msg.getFrom().getId()));
+            userService.registerUser(msg.getFrom().getFirstName(), msg.getFrom().getUserName(), TelegramClient.of(msg.getFrom().getId(), msg.getChatId()));
             SendMessage message = new SendMessage();
             String html = "*Welcome to search movie bot, let's try search something*";
             message.setText(html);
@@ -324,9 +347,9 @@ public class TelegramBot extends TelegramLongPollingBot {
             ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
             List<KeyboardRow> keyboard = new ArrayList<>();
             KeyboardRow row = new KeyboardRow();
-            row.add("/Favorites");
+            row.add(FAVORITE_COMMAND);
             row.add("/Settings");
-            row.add("/Search");
+            row.add(SEARCH_COMMAND);
             keyboard.add(row);
             row = new KeyboardRow();
             row.add("/Films");
@@ -344,7 +367,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         return message -> {
             String commandParams = message.getText().toLowerCase().replace(SEARCH_COMMAND, "");
             if(commandParams.length() == 0){
-                userService.setActiveCommand(TelegramClient.of(message.getFrom().getId()), SEARCH_COMMAND);
+                userService.setActiveCommand(TelegramClient.of(message.getFrom().getId(), message.getChatId()), SEARCH_COMMAND);
 
                 sendMessage("Enter movie name to search", message.getChatId());
             }else{
@@ -378,8 +401,8 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private EditMessageReplyMarkup createEditMessageReplyMarkup(String data, Integer userId, Long chatId, Integer messageId){
-        List<Button> buttons = messageStateService.getStateByPath(data, chatId, messageId);
-        buttons.add(createFavoriteButton(TelegramClient.of(userId), data));
+        List<Button> buttons = messageStateService.getButtonsByPath(data, chatId, messageId);
+        buttons.addAll(createMenuButtons(TelegramClient.of(userId, chatId), data));
 
         EditMessageReplyMarkup msg = createEditMessageReplyMarkup(buttons, OPEN_COMMAND, 2);
         msg.setChatId(chatId);
@@ -389,7 +412,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private Consumer<Message> favoriteHandler() {
         return message -> {
-            List<Integer> favorites = userService.getFavorites(TelegramClient.of(message.getFrom().getId()));
+            List<Integer> favorites = userService.getFavorites(TelegramClient.of(message.getFrom().getId(), message.getChatId()));
             List<Movie> favoriteMovies = searchService.getMovieByIdList(favorites);
 
             SendMessage msg = new SendMessage();
@@ -397,33 +420,17 @@ public class TelegramBot extends TelegramLongPollingBot {
             msg.setText("*You favorite list size: *" + favoriteMovies.size());
             msg.setParseMode(ParseMode.MARKDOWN);
 
-            List<Button> buttons = createFavoriteButtons(favoriteMovies);
-            List<List<InlineKeyboardButton>> inlineButons = createInlineButtons(buttons, OPEN_WITH_TEXT_CALLBACK, 1);
+            List<Button> buttons = createFavoriteListButtons(favoriteMovies);
+            List<List<InlineKeyboardButton>> inlineButtons = createInlineButtons(buttons, OPEN_WITH_TEXT_CALLBACK, 1);
             InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
-            keyboard.setKeyboard(inlineButons);
+            keyboard.setKeyboard(inlineButtons);
             msg.setReplyMarkup(keyboard);
 
             sendMethod(msg);
         };
     }
 
-    private Consumer<CallbackQuery> favoriteCallbackHandler() {
-        return callbackQuery -> {
-            userService.changeFavorites(TelegramClient.of(callbackQuery.getFrom().getId()),
-                    user -> {
-                        List<String> data = getCallbackMessage(callbackQuery.getData());
-                        if(user.getFavorites().contains(Integer.valueOf(data.get(0))))
-                            user.getFavorites().remove(Integer.valueOf(data.get(0)));
-                        else
-                            user.getFavorites().add(Integer.valueOf(data.get(0)));
-                    }
-            );
-            EditMessageReplyMarkup msg = createEditMessageReplyMarkup(callbackQuery.getData().replace(FAVORITE_COMMAND + "#", ""), callbackQuery.getFrom().getId(), callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId());
-            sendMethod(msg);
-        };
-    }
-
-    private List<Button> createFavoriteButtons(List<Movie> movieIds){
+    private List<Button> createFavoriteListButtons(List<Movie> movieIds){
         List<Button> result = new ArrayList<>();
         if(movieIds != null && !movieIds.isEmpty())
             movieIds.forEach(movie -> {
@@ -434,6 +441,36 @@ public class TelegramBot extends TelegramLongPollingBot {
                 result.add(btn);
             });
         return result;
+    }
+
+    private Consumer<CallbackQuery> favoriteCallbackHandler() {
+        return callbackQuery -> {
+            TelegramClient client = TelegramClient.of(callbackQuery.getFrom().getId(), callbackQuery.getMessage().getChatId());
+            userService.changeFavorites(client,
+                    user -> {
+                        List<String> data = getCallbackMessage(callbackQuery.getData());
+                        if(user.getFavorites().contains(Integer.valueOf(data.get(0)))){
+                            user.getFavorites().remove(Integer.valueOf(data.get(0)));
+                            subscriptionService.unsubscribe(client, Integer.valueOf(data.get(0)));
+                        }
+                        else
+                            user.getFavorites().add(Integer.valueOf(data.get(0)));
+                    }
+            );
+            EditMessageReplyMarkup msg = createEditMessageReplyMarkup(callbackQuery.getData().replace(FAVORITE_COMMAND + "#", ""), callbackQuery.getFrom().getId(), callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId());
+            sendMethod(msg);
+        };
+    }
+
+    private Consumer<CallbackQuery> subscribeCallbackHandler() {
+        return callbackQuery -> {
+            List<String> data = getCallbackMessage(callbackQuery.getData());
+            subscriptionService.changeSubscriptinState(TelegramClient.of(callbackQuery.getFrom().getId(), callbackQuery.getMessage().getChatId()), Integer.valueOf(data.get(0)));
+
+            EditMessageReplyMarkup msg = createEditMessageReplyMarkup(callbackQuery.getData().replace(SUBSCRIBE_COMMAND + "#", ""), callbackQuery.getFrom().getId(), callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId());
+            sendMethod(msg);
+
+        };
     }
 
 }

@@ -1,12 +1,13 @@
 package org.bots.model.datebase;
 
-import org.bots.model.items.MovieFileHierarchy;
+import lombok.Data;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 
 import java.util.List;
 import java.util.Map;
 
+@Data
 public class MessageState {
 
     @Id
@@ -15,47 +16,14 @@ public class MessageState {
     private Long chatId;
     @Indexed
     private Integer messageId;
+    private LinkType linkType = LinkType.URL;
 
-    private Map<Integer, MovieFileHierarchy> movieFileHierarchy;
-    private List<String> hierarhyPath;
+    private Map<Integer, MovieFileHierarchy> movieFileHierarchies;
+    private List<String> hierarchyPath;
 
-    public Long getChatId() {
-        return chatId;
+
+    public enum LinkType{
+        URL, VLC
     }
 
-    public void setChatId(Long chatId) {
-        this.chatId = chatId;
-    }
-
-    public Integer getMessageId() {
-        return messageId;
-    }
-
-    public void setMessageId(Integer messageId) {
-        this.messageId = messageId;
-    }
-
-    public Map<Integer, MovieFileHierarchy> getMovieFileHierarchy() {
-        return movieFileHierarchy;
-    }
-
-    public void setMovieFileHierarchy(Map<Integer, MovieFileHierarchy> movieFileHierarchy) {
-        this.movieFileHierarchy = movieFileHierarchy;
-    }
-
-    public List<String> getHierarhyPath() {
-        return hierarhyPath;
-    }
-
-    public void setHierarhyPath(List<String> hierarhyPath) {
-        this.hierarhyPath = hierarhyPath;
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
 }
