@@ -2,9 +2,10 @@ version: '2.2'
 services:
   mongo:
     image: mongo
-    container_name: botdb
+    container_name: mongobotdb
   wheremymovie:
     build:
+      context: .
       dockerfile: Dockerfile
     container_name: botapp
     depends_on:

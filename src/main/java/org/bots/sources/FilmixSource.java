@@ -216,7 +216,7 @@ public class FilmixSource implements MovieSources {
         try {
             response = sendRestRequest(searchUrl, requestParams, null, FilmixSearchResponse.class);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Error getting search request", e);
         }
 
         List<MovieSearchResponse> result = new ArrayList<>();
